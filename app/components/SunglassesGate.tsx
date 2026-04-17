@@ -54,18 +54,94 @@ function drawOverlay(
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (glow < 0.02) return;
 
-  const pulse = 0.85 + 0.15 * Math.sin(elapsedMs / 180);
+  const pulse = 0.96 + 0.04 * Math.sin(elapsedMs / 700);
   const strength = glow * pulse;
-
-  drawEyeGlow(ctx, canvas, lm, LEFT_EYE, strength);
-  drawEyeGlow(ctx, canvas, lm, RIGHT_EYE, strength);
 
   const leftCenter = centerOf(canvas, lm, LEFT_EYE);
   const rightCenter = centerOf(canvas, lm, RIGHT_EYE);
-  const eyeWidth = approxEyeWidth(canvas, lm, LEFT_EYE);
+  const faceCenter = {
+    x: (leftCenter.x + rightCenter.x) / 2,
+    y: (leftCenter.y + rightCenter.y) / 2,
+  };
 
-  drawRays(ctx, leftCenter, eyeWidth, elapsedMs, strength);
-  drawRays(ctx, rightCenter, eyeWidth, elapsedMs, -strength);
+  drawSunburst(ctx, canvas, faceCenter, elapsedMs, strength);
+  drawEyeGlow(ctx, canvas, lm, LEFT_EYE, strength);
+  drawEyeGlow(ctx, canvas, lm, RIGHT_EYE, strength);
+}
+
+function drawSunburst(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  center: { x: number; y: number },
+  elapsedMs: number,
+  strength: number,
+) {
+  if (strength <= 0.02) return;
+  // Reach any corner from any face position
+  const maxCornerDist = Math.max(
+    Math.hypot(center.x, center.y),
+    Math.hypot(canvas.width - center.x, center.y),
+    Math.hypot(center.x, canvas.height - center.y),
+    Math.hypot(canvas.width - center.x, canvas.height - center.y),
+  );
+  const reach = maxCornerDist * 1.1;
+
+  const NUM = 16;
+  const rotation = (elapsedMs / 24000) * Math.PI * 2;
+  const flicker = 1;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  for (let i = 0; i < NUM; i++) {
+    const angle = rotation + (i / NUM) * Math.PI * 2;
+    const thick = i % 2 === 0;
+    const halfAngle = thick ? 0.14 : 0.045;
+    const rayStrength = strength * flicker * (thick ? 1 : 0.7);
+
+    const grad = ctx.createRadialGradient(
+      center.x,
+      center.y,
+      0,
+      center.x,
+      center.y,
+      reach,
+    );
+    grad.addColorStop(0, `rgba(255, 200, 255, ${0.9 * rayStrength})`);
+    grad.addColorStop(0.08, `rgba(255, 120, 240, ${0.75 * rayStrength})`);
+    grad.addColorStop(0.45, `rgba(255, 77, 240, ${0.28 * rayStrength})`);
+    grad.addColorStop(1, "rgba(255, 77, 240, 0)");
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(center.x, center.y);
+    ctx.lineTo(
+      center.x + Math.cos(angle - halfAngle) * reach,
+      center.y + Math.sin(angle - halfAngle) * reach,
+    );
+    ctx.lineTo(
+      center.x + Math.cos(angle + halfAngle) * reach,
+      center.y + Math.sin(angle + halfAngle) * reach,
+    );
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Soft center glow so the rays visibly converge at the face
+  const centerGrad = ctx.createRadialGradient(
+    center.x,
+    center.y,
+    0,
+    center.x,
+    center.y,
+    reach * 0.25,
+  );
+  centerGrad.addColorStop(0, `rgba(255, 200, 255, ${0.5 * strength})`);
+  centerGrad.addColorStop(1, "rgba(255, 77, 240, 0)");
+  ctx.fillStyle = centerGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.restore();
 }
 
 function drawEyeGlow(
@@ -103,50 +179,6 @@ function drawEyeGlow(
   ctx.restore();
 }
 
-function drawRays(
-  ctx: CanvasRenderingContext2D,
-  center: { x: number; y: number },
-  eyeWidth: number,
-  elapsedMs: number,
-  strength: number,
-) {
-  const abs = Math.abs(strength);
-  if (abs <= 0.01) return;
-  const NUM = 10;
-  const rotation = (elapsedMs / 2400) * Math.PI * 2 * Math.sign(strength || 1);
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.lineCap = "round";
-  for (let i = 0; i < NUM; i++) {
-    const angle = rotation + (i / NUM) * Math.PI * 2;
-    const inner = eyeWidth * 1.4;
-    const outer =
-      eyeWidth * (2.5 + 1.8 * Math.sin(elapsedMs / 320 + i * 1.7));
-    const x1 = center.x + Math.cos(angle) * inner;
-    const y1 = center.y + Math.sin(angle) * inner;
-    const x2 = center.x + Math.cos(angle) * outer;
-    const y2 = center.y + Math.sin(angle) * outer;
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.shadowBlur = 24 * abs;
-    ctx.shadowColor = "rgba(255, 77, 240, 0.9)";
-    ctx.strokeStyle = `rgba(255, 150, 240, ${0.7 * abs})`;
-    ctx.lineWidth = 3 * abs;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * abs})`;
-    ctx.lineWidth = 1 * abs;
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function centerOf(
   canvas: HTMLCanvasElement,
   lm: { x: number; y: number }[],
@@ -166,23 +198,6 @@ function centerOf(
     x: (sx / Math.max(1, n)) * canvas.width,
     y: (sy / Math.max(1, n)) * canvas.height,
   };
-}
-
-function approxEyeWidth(
-  canvas: HTMLCanvasElement,
-  lm: { x: number; y: number }[],
-  indices: number[],
-) {
-  let minX = Infinity,
-    maxX = -Infinity;
-  for (const i of indices) {
-    const p = lm[i];
-    if (!p) continue;
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-  }
-  if (!isFinite(minX)) return 40;
-  return Math.max(30, (maxX - minX) * canvas.width);
 }
 
 function sampleBrightness(
@@ -237,6 +252,7 @@ export function SunglassesGate({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const glowRef = useRef(0);
   const manualOverrideRef = useRef(false);
+  const lastLandmarksRef = useRef<{ x: number; y: number }[] | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [eyeB, setEyeB] = useState(0);
   const [faceB, setFaceB] = useState(0);
@@ -307,12 +323,30 @@ export function SunglassesGate({
           setStatus("no-face");
           emit(false);
         }
-        glowRef.current += (0 - glowRef.current) * 0.12;
-        clearOverlay(overlayRef.current);
+        // Hold the overlay steady through brief detection gaps
+        const faceProbablyGone = consecutiveFail > 20;
+        const target =
+          (currentlyPassed || manualOverrideRef.current) && !faceProbablyGone
+            ? 1
+            : 0;
+        glowRef.current += (target - glowRef.current) * 0.08;
+        if (lastLandmarksRef.current && glowRef.current > 0.02) {
+          drawOverlay(
+            overlayRef.current,
+            video.videoWidth,
+            video.videoHeight,
+            lastLandmarksRef.current,
+            performance.now() - startedAt,
+            glowRef.current,
+          );
+        } else {
+          clearOverlay(overlayRef.current);
+        }
         return;
       }
 
       const lm = result.faceLandmarks[0];
+      lastLandmarksRef.current = lm;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
