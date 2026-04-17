@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VibeCheque
 
-## Getting Started
+> A multiplayer dancing game you can only win with your actual body.
 
-First, run the development server:
+Built at **ETHSilesia 2026**, Apr 17–19, spinPLACE Katowice.
+
+Put on sunglasses. Join a room. Dance. Money streams from the worst dancers to
+the best while the song plays. Take the sunglasses off to meet the people you
+just danced with.
+
+It's a human-first, embodied, anti-AI response to a world drowning in
+generated slop. You cannot fake this with an LLM. You have to move your body,
+in front of a camera, in real time, with strangers.
+
+## How it works
+
+1. **Sunglasses gate.** MediaPipe FaceMesh checks you're actually wearing
+   sunglasses before it lets you in.
+2. **Shared room.** LiveKit SFU fans out everyone's webcam. One hardcoded room
+   for the hackathon — no matchmaking.
+3. **Synced track.** Server emits a `trackStart` timestamp; each client
+   schedules playback against its own `performance.now()` offset.
+4. **Scoring.** MediaPipe Pose runs in-browser at ~15–30 fps. Your score is
+   the correlation between your keypoint-velocity vector and the track's
+   precomputed beat envelope, smoothed with an EMA.
+5. **Streaming money.** Superfluid on Base Sepolia. Everyone opens a
+   constant-rate outflow into a room escrow at match start. Every tick, the
+   top-half scorers receive; the bottom half don't. At the end of the track,
+   streams close and settle.
+6. **Say hi.** Post-match screen offers "Dance again" or "Say hi" — the latter
+   opens a short-lived chat room for the people you just danced with.
+
+## Stack
+
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind 4
+- **CV:** `@mediapipe/tasks-vision` (Pose Landmarker, Face Landmarker)
+- **Realtime A/V:** LiveKit Cloud (video, audio, data channels)
+- **Wallet:** Privy (embedded + social login, Base Sepolia default)
+- **Chain:** Base Sepolia + Superfluid streaming payments
+- **Hosting:** Vercel
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
+cp .env.example .env.local   # fill in the values
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open two tabs at [localhost:3000](http://localhost:3000) and join the room
+from each to see the webcam grid.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Key                        | Where                                  |
+| -------------------------- | -------------------------------------- |
+| `LIVEKIT_API_KEY`          | [cloud.livekit.io](https://cloud.livekit.io) → Settings → Keys |
+| `LIVEKIT_API_SECRET`       | same                                   |
+| `LIVEKIT_URL`              | `wss://<project>.livekit.cloud`        |
+| `NEXT_PUBLIC_LIVEKIT_URL`  | same as `LIVEKIT_URL`                  |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | [dashboard.privy.io](https://dashboard.privy.io) |
+| `NEXT_PUBLIC_ROOM_NAME`    | defaults to `vibecheque-main`          |
 
-## Learn More
+## Status
 
-To learn more about Next.js, take a look at the following resources:
+Hackathon WIP. See [`~/ethsilesia/PRD.md`](PRD.md) (local) for the full
+milestone plan.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [x] Next.js + Tailwind + LiveKit + Privy scaffold
+- [x] Webcam tile grid, hardcoded room
+- [ ] Sunglasses gate (FaceMesh)
+- [ ] Pose scoring loop + beat-envelope correlation
+- [ ] Synchronized track playback
+- [ ] Superfluid streaming escrow on Base Sepolia
+- [ ] Money-flow UI overlay
+- [ ] Post-match "Say hi" chat
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Known limits
 
-## Deploy on Vercel
+- Client-authoritative scoring — cheatable. Future work: ZK pose proof or
+  TEE-attested scoring.
+- One hardcoded room. No lobbies.
+- Base Sepolia only. Mainnet-ready architecture, not mainnet-deployed.
+- Desktop Chrome only.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+GPLv3. Made during ETHSilesia 2026 hackathon.
