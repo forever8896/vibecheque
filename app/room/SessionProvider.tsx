@@ -20,8 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Match, MatchPhase } from "./useMatch";
-import { useMatch } from "./useMatch";
+import type { Lobby, Match, MatchPhase } from "./useLobby";
 import { usePoseScore, type PoseFrame } from "./usePoseScore";
 
 type Session = {
@@ -38,6 +37,10 @@ type Session = {
   progress: number;
   startMatch: (duration?: number) => Promise<Match | null>;
   localFrameRef: React.RefObject<PoseFrame | null>;
+  roomName: string | null;
+  participants: number;
+  maxPlayers: number;
+  lobbyLocked: boolean;
 };
 
 const noopRef = { current: null } as React.RefObject<PoseFrame | null>;
@@ -58,6 +61,10 @@ const SessionContext = createContext<Session>({
   progress: 0,
   startMatch: async () => null,
   localFrameRef: noopRef,
+  roomName: null,
+  participants: 0,
+  maxPlayers: 4,
+  lobbyLocked: false,
 });
 
 export function useSession() {
@@ -68,7 +75,13 @@ type WireMessage =
   | { type: "score"; score: number }
   | { type: "match"; match: Match; serverNow: number };
 
-export function SessionProvider({ children }: { children: React.ReactNode }) {
+export function SessionProvider({
+  children,
+  lobby,
+}: {
+  children: React.ReactNode;
+  lobby: Lobby;
+}) {
   const room = useMaybeRoomContext();
   const { localParticipant } = useLocalParticipant();
 
@@ -83,6 +96,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [scores]);
 
   const {
+    roomName,
+    participants: lobbyParticipants,
+    maxPlayers,
+    locked: lobbyLocked,
     match,
     phase,
     secondsToStart,
@@ -91,7 +108,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     progress,
     startMatch: startMatchBase,
     ingestBroadcast,
-  } = useMatch();
+  } = lobby;
 
   // LiveKitRoom video/audio props sometimes don't auto-publish reliably.
   // Force-enable camera+mic once we're connected.
@@ -292,6 +309,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       progress,
       startMatch,
       localFrameRef,
+      roomName,
+      participants: lobbyParticipants,
+      maxPlayers,
+      lobbyLocked,
     }),
     [
       scores,
@@ -306,6 +327,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       progress,
       startMatch,
       localFrameRef,
+      roomName,
+      lobbyParticipants,
+      maxPlayers,
+      lobbyLocked,
     ],
   );
 

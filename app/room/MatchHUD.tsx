@@ -24,18 +24,53 @@ export function MatchHUD() {
     buyIn,
     startMatch,
     match,
+    participants: lobbyCount,
+    maxPlayers,
+    lobbyLocked,
   } = useSession();
   const participants = useParticipants();
 
   if (phase === "idle") {
+    const ready = lobbyCount >= 2 && !lobbyLocked;
+    const solo = lobbyCount <= 1;
     return (
-      <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-center pb-8">
-        <button
-          onClick={() => startMatch()}
-          className="pointer-events-auto rounded-full bg-fuchsia-500 px-8 py-4 text-sm font-semibold text-black shadow-[0_0_40px_rgba(255,77,240,0.5)] transition hover:bg-fuchsia-400"
-        >
-          ▶ Start a match
-        </button>
+      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-end gap-4 pb-8">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 backdrop-blur">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              ready
+                ? "bg-emerald-400 shadow-[0_0_8px_rgba(74,222,128,0.8)]"
+                : "bg-zinc-400 animate-pulse"
+            }`}
+          />
+          <span>
+            {lobbyCount}/{maxPlayers} dancers
+          </span>
+          {lobbyLocked && <span className="text-fuchsia-300">· locked</span>}
+        </div>
+
+        {solo ? (
+          <p className="pointer-events-auto rounded-full bg-black/60 px-5 py-2 font-mono text-xs uppercase tracking-widest text-zinc-300 backdrop-blur">
+            waiting for a dance partner…
+          </p>
+        ) : lobbyLocked ? (
+          <p className="pointer-events-auto rounded-full bg-fuchsia-500/20 px-5 py-2 font-mono text-xs uppercase tracking-widest text-fuchsia-200 backdrop-blur">
+            starting…
+          </p>
+        ) : (
+          <div className="pointer-events-auto flex flex-col items-center gap-2">
+            <button
+              onClick={() => startMatch()}
+              disabled={!ready}
+              className="rounded-full bg-fuchsia-500 px-8 py-4 text-sm font-semibold text-black shadow-[0_0_40px_rgba(255,77,240,0.5)] transition hover:bg-fuchsia-400 disabled:opacity-50"
+            >
+              ▶ Start now
+            </button>
+            <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">
+              or wait — more can still join
+            </p>
+          </div>
+        )}
       </div>
     );
   }

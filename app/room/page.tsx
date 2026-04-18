@@ -16,7 +16,7 @@ import {
 } from "livekit-client";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-core";
 import Link from "next/link";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
   BodyAura,
@@ -29,6 +29,7 @@ import { BeatPulse } from "./BeatPulse";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
+import { useLobby } from "./useLobby";
 import type { PoseFrame } from "./usePoseScore";
 
 function ScoreOverlay() {
@@ -308,11 +309,11 @@ function Stage() {
 }
 
 function RoomInner() {
-  const { match, phase, secondsElapsed } = useSession();
+  const { match, phase, secondsElapsed, roomName } = useSession();
   return (
     <div className="fixed inset-0 flex flex-col bg-black">
       <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
-        <span>VibeCheque · {process.env.NEXT_PUBLIC_ROOM_NAME}</span>
+        <span>VibeCheque · {roomName ?? "lobby"}</span>
         <Link href="/" className="text-zinc-400 hover:text-white">
           leave
         </Link>
@@ -330,33 +331,58 @@ function RoomInner() {
 
 export default function RoomPage() {
   const { user, ready, authenticated } = usePrivy();
+
+  // Stable identity for this session: survive Privy re-hydration so we
+  // don't ping-pong between lobby rooms.
+  const [guestFallback] = useState(
+    () => `guest-${Math.random().toString(36).slice(2, 10)}`,
+  );
+  const identity = useMemo(() => {
+    if (!ready) return null;
+    return user?.wallet?.address ?? user?.id ?? guestFallback;
+  }, [ready, user, guestFallback]);
+  const displayName = useMemo(() => {
+    if (!identity) return undefined;
+    return user?.email?.address ?? identity.slice(0, 10);
+  }, [identity, user]);
+
+  const lobby = useLobby(identity, displayName);
+
   const [token, setToken] = useState<string | null>(null);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch a LiveKit token for whichever room the lobby assigned us to
   useEffect(() => {
-    if (!ready) return;
-    const identity =
-      user?.wallet?.address ??
-      user?.id ??
-      `guest-${Math.random().toString(36).slice(2, 10)}`;
-    const name = user?.email?.address ?? identity.slice(0, 10);
-    const room = process.env.NEXT_PUBLIC_ROOM_NAME ?? "vibecheque-main";
-
-    const params = new URLSearchParams({ identity, name, room });
+    if (!lobby.roomName || !identity) return;
+    const params = new URLSearchParams({
+      identity,
+      name: displayName ?? identity,
+      room: lobby.roomName,
+    });
+    let cancelled = false;
     fetch(`/api/livekit-token?${params.toString()}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(await r.text());
         return r.json();
       })
       .then((data: { token: string; url: string }) => {
+        if (cancelled) return;
         setToken(data.token);
         setWsUrl(data.url);
       })
-      .catch((e) => setError(String(e)));
-  }, [ready, user]);
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lobby.roomName, identity, displayName]);
 
-  if (!ready || (!token && !error)) {
+  // Keep `authenticated` referenced for linters
+  void authenticated;
+
+  if (!ready) {
     return (
       <main className="flex flex-1 items-center justify-center text-sm opacity-60">
         Warming up the dance floor…
@@ -375,10 +401,25 @@ export default function RoomPage() {
     );
   }
 
-  if (!token || !wsUrl) return null;
+  if (!lobby.roomName) {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="font-mono text-xs uppercase tracking-[0.3em] text-fuchsia-200 animate-pulse">
+          finding a room…
+        </p>
+      </main>
+    );
+  }
 
-  // Keep `authenticated` referenced for linters, though routing already enforces it.
-  void authenticated;
+  if (!token || !wsUrl) {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="font-mono text-xs uppercase tracking-[0.3em] text-zinc-400 animate-pulse">
+          connecting to {lobby.roomName}…
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-1 flex-col">
@@ -391,7 +432,7 @@ export default function RoomPage() {
         data-lk-theme="default"
         className="flex-1"
       >
-        <SessionProvider>
+        <SessionProvider lobby={lobby}>
           <RoomInner />
         </SessionProvider>
       </LiveKitRoom>

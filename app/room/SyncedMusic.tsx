@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Match, MatchPhase } from "./useMatch";
+import type { Match, MatchPhase } from "./useLobby";
 import { useAudioBeats } from "./beats";
 
 // Demo track committed at public/harnas-ice-tea.mp3.
