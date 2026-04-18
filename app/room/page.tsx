@@ -3,17 +3,20 @@
 import {
   LiveKitRoom,
   ParticipantContext,
-  ParticipantTile,
   RoomAudioRenderer,
   TrackRefContext,
   useMaybeParticipantContext,
   useMaybeRoomContext,
   useParticipants,
 } from "@livekit/components-react";
-import { RoomEvent, Track } from "livekit-client";
+import {
+  RoomEvent,
+  Track,
+  type TrackPublication,
+} from "livekit-client";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-core";
 import Link from "next/link";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
   BodyAura,
@@ -50,6 +53,37 @@ function ScoreOverlay() {
   );
 }
 
+function AttachedVideo({
+  publication,
+  mirror,
+}: {
+  publication: TrackPublication | undefined;
+  mirror: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const track = publication?.track;
+    if (!video || !track) return;
+    track.attach(video);
+    return () => {
+      track.detach(video);
+    };
+  }, [publication, publication?.track]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      className="h-full w-full object-cover"
+      style={mirror ? { transform: "scaleX(-1)" } : undefined}
+    />
+  );
+}
+
 function DanceTile() {
   const participant = useMaybeParticipantContext();
   const { scores, phase } = useSession();
@@ -64,7 +98,7 @@ function DanceTile() {
   return (
     <div
       data-dance-tile={identity}
-      className="relative h-full w-full overflow-hidden rounded-xl bg-zinc-900"
+      className="relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-zinc-900"
     >
       {hasVideo ? (
         <div
@@ -73,7 +107,7 @@ function DanceTile() {
             filter: active ? tileVideoFilter(score, isLocal) : "none",
           }}
         >
-          <ParticipantTile />
+          <AttachedVideo publication={camPub} mirror={isLocal} />
         </div>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
@@ -130,7 +164,10 @@ function Stage() {
   return (
     <div
       className="grid h-full w-full gap-2"
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      style={{
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridAutoRows: "minmax(0, 1fr)",
+      }}
     >
       {participants.map((p) => {
         const pub = p.getTrackPublication(Track.Source.Camera);
@@ -152,14 +189,14 @@ function Stage() {
 function RoomInner() {
   const { match, phase, secondsElapsed } = useSession();
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="fixed inset-0 flex flex-col bg-black">
       <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
         <span>VibeCheque · {process.env.NEXT_PUBLIC_ROOM_NAME}</span>
         <Link href="/" className="text-zinc-400 hover:text-white">
           leave
         </Link>
       </header>
-      <div className="relative flex-1 overflow-hidden px-2 pb-2">
+      <div className="relative flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <Stage />
         <MatchHUD />
       </div>
