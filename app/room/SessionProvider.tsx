@@ -27,6 +27,9 @@ import { usePoseScore, type PoseFrame } from "./usePoseScore";
 type Session = {
   scores: Map<string, number>;
   totals: Map<string, number>;
+  winnings: Map<string, number>;
+  flowRates: Map<string, number>;
+  buyIn: number;
   match: Match | null;
   phase: MatchPhase;
   secondsToStart: number;
@@ -39,9 +42,14 @@ type Session = {
 
 const noopRef = { current: null } as React.RefObject<PoseFrame | null>;
 
+const BUY_IN_USD = 1;
+
 const SessionContext = createContext<Session>({
   scores: new Map(),
   totals: new Map(),
+  winnings: new Map(),
+  flowRates: new Map(),
+  buyIn: BUY_IN_USD,
   match: null,
   phase: "idle",
   secondsToStart: 0,
@@ -66,7 +74,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const [scores, setScores] = useState<Map<string, number>>(new Map());
   const [totals, setTotals] = useState<Map<string, number>>(new Map());
+  const [winnings, setWinnings] = useState<Map<string, number>>(new Map());
+  const [flowRates, setFlowRates] = useState<Map<string, number>>(new Map());
   const totalsMatchIdRef = useRef<string | null>(null);
+  const scoresRef = useRef(scores);
+  useEffect(() => {
+    scoresRef.current = scores;
+  }, [scores]);
 
   const {
     match,
@@ -114,29 +128,72 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
   }, [localParticipant, myScore]);
 
-  // Accumulate totals during a playing match. Reset on new match id.
+  // Reset per-match accumulators when a new match starts
   useEffect(() => {
-    if (phase !== "playing" || !match) return;
+    if (!match) return;
     if (totalsMatchIdRef.current !== match.id) {
       totalsMatchIdRef.current = match.id;
       setTotals(new Map());
+      setWinnings(new Map());
+      setFlowRates(new Map());
     }
-  }, [phase, match]);
+  }, [match]);
 
-  // Fold instant scores into totals at ~2 Hz while playing
+  // Tick while playing: accumulate totals + simulate USDC streams
   useEffect(() => {
-    if (phase !== "playing") return;
+    if (phase !== "playing" || !match) return;
+    const tickMs = 500;
+    const perSecondOutflow = BUY_IN_USD / (match.duration / 1000);
+    const tickFraction = tickMs / 1000;
+
     const id = setInterval(() => {
+      const cur = scoresRef.current;
+      const entries = [...cur.entries()];
+
+      // Accumulate score totals
       setTotals((prev) => {
         const next = new Map(prev);
-        for (const [identity, s] of scores) {
+        for (const [identity, s] of entries) {
           next.set(identity, (next.get(identity) ?? 0) + s);
         }
         return next;
       });
-    }, 500);
+
+      if (entries.length < 2) {
+        setFlowRates(new Map());
+        return;
+      }
+
+      entries.sort((a, b) => b[1] - a[1]);
+      const losersCount = Math.floor(entries.length / 2);
+      const winners = entries.slice(0, entries.length - losersCount);
+      const losers = entries.slice(entries.length - losersCount);
+
+      const poolPerSecond = losers.length * perSecondOutflow;
+      const winnerRatePerSecond =
+        winners.length > 0 ? poolPerSecond / winners.length : 0;
+      const loserDelta = -perSecondOutflow * tickFraction;
+      const winnerDelta = winnerRatePerSecond * tickFraction;
+
+      setWinnings((prev) => {
+        const next = new Map(prev);
+        for (const [identity] of winners) {
+          next.set(identity, (next.get(identity) ?? 0) + winnerDelta);
+        }
+        for (const [identity] of losers) {
+          next.set(identity, (next.get(identity) ?? 0) + loserDelta);
+        }
+        return next;
+      });
+
+      const rates = new Map<string, number>();
+      for (const [identity] of winners) rates.set(identity, winnerRatePerSecond);
+      for (const [identity] of losers) rates.set(identity, -perSecondOutflow);
+      setFlowRates(rates);
+    }, tickMs);
+
     return () => clearInterval(id);
-  }, [phase, scores]);
+  }, [phase, match]);
 
   // Broadcast my score every 500ms
   useEffect(() => {
@@ -211,6 +268,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     () => ({
       scores,
       totals,
+      winnings,
+      flowRates,
+      buyIn: BUY_IN_USD,
       match,
       phase,
       secondsToStart,
@@ -223,6 +283,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [
       scores,
       totals,
+      winnings,
+      flowRates,
       match,
       phase,
       secondsToStart,

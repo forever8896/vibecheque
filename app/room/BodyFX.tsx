@@ -271,6 +271,40 @@ export function TileAmbient({
   );
 }
 
+// Per-tile live USDC flow pill (green when winning, red when losing)
+export function FlowPill({ identity }: { identity: string | undefined }) {
+  const { flowRates, winnings, phase } = useSession();
+  if (!identity) return null;
+  if (phase !== "playing" && phase !== "ended") return null;
+
+  const rate = flowRates.get(identity) ?? 0;
+  const net = winnings.get(identity) ?? 0;
+  const winning = rate > 0;
+  const losing = rate < 0;
+
+  const rateLabel =
+    rate === 0
+      ? "•"
+      : `${winning ? "+" : ""}$${Math.abs(rate).toFixed(3)}/s`;
+  const netLabel = `${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}`;
+
+  return (
+    <div
+      className={`pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest backdrop-blur transition ${
+        winning
+          ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-200"
+          : losing
+            ? "border-rose-400/60 bg-rose-500/20 text-rose-200"
+            : "border-white/10 bg-black/70 text-zinc-300"
+      }`}
+    >
+      <span>{winning ? "↑" : losing ? "↓" : "•"}</span>
+      <span className="tabular-nums">{rateLabel}</span>
+      <span className="tabular-nums opacity-70">{netLabel}</span>
+    </div>
+  );
+}
+
 // CSS filter string to saturate + boost each tile's video during a match
 export function tileVideoFilter(score: number, isLocal: boolean): string {
   const intensity = Math.min(1, score / 100);

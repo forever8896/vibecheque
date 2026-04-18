@@ -20,6 +20,8 @@ export function MatchHUD() {
     secondsRemaining,
     progress,
     totals,
+    winnings,
+    buyIn,
     startMatch,
     match,
   } = useSession();
@@ -52,9 +54,10 @@ export function MatchHUD() {
   }
 
   if (phase === "playing") {
+    const pool = buyIn * participants.length;
     return (
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 px-4 pt-4">
-        <div className="mx-auto flex max-w-xl items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 font-mono text-xs uppercase tracking-widest text-white backdrop-blur">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center gap-2 px-4 pt-4">
+        <div className="flex w-full max-w-xl items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 font-mono text-xs uppercase tracking-widest text-white backdrop-blur">
           <span className="text-fuchsia-300">● live</span>
           <span className="tabular-nums">
             {formatTime(secondsElapsed)} /{" "}
@@ -70,22 +73,35 @@ export function MatchHUD() {
             -{formatTime(secondsRemaining)}
           </span>
         </div>
+        <div className="flex gap-2 font-mono text-[10px] uppercase tracking-widest">
+          <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-1 text-emerald-200">
+            pot ${pool.toFixed(2)}
+          </span>
+          <span className="rounded-full border border-white/10 bg-black/60 px-3 py-1 text-zinc-300">
+            streams live · Base Sepolia (sim)
+          </span>
+        </div>
       </div>
     );
   }
 
   // ended
-  const ranked = [...totals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([identity, total]) => {
+  const allIdentities = new Set<string>([
+    ...totals.keys(),
+    ...winnings.keys(),
+  ]);
+  const ranked = [...allIdentities]
+    .map((identity) => {
       const p = participants.find((x) => x.identity === identity);
       return {
         identity,
         name: p?.name || identity.slice(0, 10),
         isLocal: p?.isLocal ?? false,
-        total: Math.round(total),
+        total: Math.round(totals.get(identity) ?? 0),
+        net: winnings.get(identity) ?? 0,
       };
-    });
+    })
+    .sort((a, b) => b.net - a.net || b.total - a.total);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-md">
@@ -93,7 +109,7 @@ export function MatchHUD() {
         <p className="font-mono text-xs uppercase tracking-[0.4em] text-fuchsia-300">
           final
         </p>
-        <h2 className="text-4xl font-semibold text-white">Leaderboard</h2>
+        <h2 className="text-4xl font-semibold text-white">Settlement</h2>
         <ol className="flex w-full flex-col gap-2">
           {ranked.length === 0 ? (
             <li className="font-mono text-xs text-zinc-500">
@@ -118,11 +134,29 @@ export function MatchHUD() {
                     {row.isLocal ? " (you)" : ""}
                   </span>
                 </span>
-                <span className="tabular-nums">{row.total}</span>
+                <span className="flex items-center gap-4">
+                  <span className="tabular-nums text-xs text-zinc-500">
+                    {row.total}
+                  </span>
+                  <span
+                    className={`tabular-nums ${
+                      row.net > 0
+                        ? "text-emerald-300"
+                        : row.net < 0
+                          ? "text-rose-300"
+                          : "text-zinc-400"
+                    }`}
+                  >
+                    {row.net >= 0 ? "+" : "-"}${Math.abs(row.net).toFixed(2)}
+                  </span>
+                </span>
               </li>
             ))
           )}
         </ol>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+          stakes settle bottom half → top half · ${buyIn.toFixed(2)} buy-in
+        </p>
         <div className="flex gap-3">
           <button
             onClick={() => startMatch()}

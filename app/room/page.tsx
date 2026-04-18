@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
   BodyAura,
+  FlowPill,
   ScoreCallouts,
   TileAmbient,
   tileVideoFilter,
@@ -71,6 +72,7 @@ function DanceTile() {
       <TileAmbient identity={identity} />
       {isLocal && <ScoreCallouts />}
       <ScoreOverlay />
+      <FlowPill identity={identity} />
     </div>
   );
 }
