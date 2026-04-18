@@ -228,11 +228,10 @@ function DebugLogDump() {
   const [copied, setCopied] = useState(false);
   if (!matchLog) return null;
   const s = matchLog.samples;
-  const avgActivity =
-    s.length > 0 ? s.reduce((a, x) => a + x.activity, 0) / s.length : 0;
-  const peakActivity = s.length > 0 ? Math.max(...s.map((x) => x.activity)) : 0;
-  const beatPct =
-    s.length > 0 ? (s.filter((x) => x.beatIn).length / s.length) * 100 : 0;
+  const avgSim =
+    s.length > 0 ? s.reduce((a, x) => a + x.similarity, 0) / s.length : 0;
+  const peakSim = s.length > 0 ? Math.max(...s.map((x) => x.similarity)) : 0;
+  const uniqueTargets = new Set(s.map((x) => x.target)).size;
   const musicPct =
     s.length > 0 ? (s.filter((x) => x.musicOn).length / s.length) * 100 : 0;
   const finalBpm = s[s.length - 1]?.bpm ?? 0;
@@ -281,12 +280,12 @@ function DebugLogDump() {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-        <span className="text-zinc-500">avg activity</span>
-        <span className="tabular-nums">{avgActivity.toFixed(1)}</span>
-        <span className="text-zinc-500">peak activity</span>
-        <span className="tabular-nums">{peakActivity.toFixed(1)}</span>
-        <span className="text-zinc-500">beat window %</span>
-        <span className="tabular-nums">{beatPct.toFixed(1)}</span>
+        <span className="text-zinc-500">avg similarity</span>
+        <span className="tabular-nums">{avgSim.toFixed(3)}</span>
+        <span className="text-zinc-500">peak similarity</span>
+        <span className="tabular-nums">{peakSim.toFixed(3)}</span>
+        <span className="text-zinc-500">poses seen</span>
+        <span className="tabular-nums">{uniqueTargets}</span>
         <span className="text-zinc-500">music on %</span>
         <span className="tabular-nums">{musicPct.toFixed(1)}</span>
         <span className="text-zinc-500">final BPM</span>

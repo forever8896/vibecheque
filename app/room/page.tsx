@@ -26,6 +26,7 @@ import {
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
+import { PoseGhost } from "./PoseGhost";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -224,6 +225,7 @@ function DanceTile() {
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
+          {isLocal && active && <PoseGhost />}
           {isLocal && <ScoreCallouts />}
           <ScoreOverlay />
           <FlowPill identity={identity} />

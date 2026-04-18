@@ -5,11 +5,11 @@ import type { PoseFrame } from "./usePoseScore";
 
 export type MatchLogSample = {
   t: number; // seconds into the match
-  score: number;
-  activity: number;
-  joints: number;
-  beatIn: boolean;
-  beatClose: number;
+  score: number; // live similarity × 100
+  similarity: number; // 0..1
+  peak: number; // peak this window 0..1
+  target: string; // current target pose name
+  activity: number; // raw average velocity (debug)
   bass: number;
   bpm: number;
   musicOn: boolean;
@@ -57,10 +57,10 @@ export function useMatchLog(opts: {
       samplesRef.current.push({
         t: +((now - start) / 1000).toFixed(2),
         score: f.score,
-        activity: +f.rawActivity.toFixed(2),
-        joints: f.activeJoints,
-        beatIn: f.inBeatWindow,
-        beatClose: +f.beatCloseness.toFixed(2),
+        similarity: +f.similarity.toFixed(3),
+        peak: +f.peakSimilarity.toFixed(3),
+        target: f.target?.name ?? "—",
+        activity: +f.activity.toFixed(4),
         bass: +f.bassIntensity.toFixed(2),
         bpm: f.bpm,
         musicOn: f.musicOn,
@@ -106,22 +106,30 @@ export function matchLogToText(log: MatchLog): string {
 function summarizeLog(log: MatchLog) {
   const s = log.samples;
   if (s.length === 0) return { note: "no samples" };
-  const peakActivity = Math.max(...s.map((x) => x.activity));
-  const avgActivity =
-    s.reduce((a, x) => a + x.activity, 0) / s.length;
-  const peakScore = Math.max(...s.map((x) => x.score));
+  const avgSim = s.reduce((a, x) => a + x.similarity, 0) / s.length;
+  const peakSim = Math.max(...s.map((x) => x.similarity));
   const avgScore = s.reduce((a, x) => a + x.score, 0) / s.length;
-  const beatSamples = s.filter((x) => x.beatIn).length;
+  const peakScore = Math.max(...s.map((x) => x.score));
   const musicSamples = s.filter((x) => x.musicOn).length;
   const finalBpm = s[s.length - 1]?.bpm ?? 0;
+  // Rough per-target peaks from the sampled peak timeline
+  const peaksByTarget = new Map<string, number>();
+  for (const x of s) {
+    peaksByTarget.set(
+      x.target,
+      Math.max(peaksByTarget.get(x.target) ?? 0, x.peak),
+    );
+  }
   return {
     samples: s.length,
-    avgActivity: +avgActivity.toFixed(1),
-    peakActivity: +peakActivity.toFixed(1),
+    avgSimilarity: +avgSim.toFixed(3),
+    peakSimilarity: +peakSim.toFixed(3),
     avgScore: +avgScore.toFixed(1),
     peakScore,
-    beatWindowPct: +((beatSamples / s.length) * 100).toFixed(1),
     musicOnPct: +((musicSamples / s.length) * 100).toFixed(1),
     finalBpm,
+    peaksByTarget: Object.fromEntries(
+      [...peaksByTarget.entries()].map(([k, v]) => [k, +v.toFixed(2)]),
+    ),
   };
 }

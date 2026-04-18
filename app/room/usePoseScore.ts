@@ -7,21 +7,25 @@ import {
 } from "@mediapipe/tasks-vision";
 import { useEffect, useRef, useState } from "react";
 import { beatState } from "./beats";
+import { POSE_LIBRARY, type PoseTarget } from "./poseLibrary";
+import { poseSimilarity } from "./poseMatcher";
 
 export type PoseFrame = {
   landmarks: NormalizedLandmark[];
-  // Final score (0-100) — what peers see
+  // Live score = similarity × 100, 0-100
   score: number;
   updatedAt: number;
-  // Debug-oriented breakdown
-  activeJoints: number; // count of joints with velocity > noise floor this frame
-  totalJoints: number; // total joints we sampled
-  rawActivity: number; // EMA of active joint velocities, 0..100-ish
-  beatCloseness: number; // 0..1, 1 if exactly on beat, 0 if far from beat
-  inBeatWindow: boolean; // whether this frame is within the beat window
-  musicOn: boolean; // whether we've detected at least one beat
-  bassIntensity: number; // live bass energy 0..1
-  bpm: number; // smoothed BPM
+  // Pose-matching telemetry
+  target: PoseTarget | null;
+  targetIdx: number; // index into POSE_LIBRARY
+  similarity: number; // live similarity 0..1 against current target
+  peakSimilarity: number; // best similarity so far this target window
+  timeInWindow: number; // ms since target was set
+  musicOn: boolean;
+  bassIntensity: number;
+  bpm: number;
+  // Diagnostic carry-overs (kept for the match log)
+  activity: number; // |avgVelocity| for debugging
 };
 
 const WASM_BASE =
@@ -29,25 +33,10 @@ const WASM_BASE =
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
-// Body joints only (skip face 0-10 which are noisy and don't represent dance)
-const JOINTS = Array.from({ length: 22 }, (_, i) => i + 11);
-
-// Noise floor — per-joint velocity below this is treated as camera jitter,
-// not real motion. Normalized coords; ~0.004 ≈ 2.5 pixels on a 640px frame.
-const PER_JOINT_NOISE_FLOOR = 0.0045;
-
-// How much to scale raw per-frame velocity into a 0-100 activity number
-const ACTIVITY_SCALE = 1800;
-
-// Time window around a beat where motion counts. Wider = more forgiving.
-const BEAT_WINDOW_MS = 220;
-
-// When music is playing, off-beat motion scores this fraction of on-beat
-// (set to 0 for strict mode, 0.15 for softer gating)
-const OFF_BEAT_FLOOR = 0.1;
-
-// EMA smoothing factor for activity (0..1). Higher = twitchier.
-const ACTIVITY_EMA = 0.25;
+// Beats between pose switches. 2 @ 120 BPM ≈ 1s per pose.
+const BEATS_PER_POSE = 2;
+// Fallback rotation when music isn't detected.
+const FALLBACK_POSE_MS = 2200;
 
 export function usePoseScore(
   track: MediaStreamTrack | null | undefined,
@@ -62,9 +51,29 @@ export function usePoseScore(
     let rafId = 0;
     let landmarker: PoseLandmarker | null = null;
     let prev: NormalizedLandmark[] | null = null;
-    let emaActivity = 0;
     let lastSetAt = 0;
     let lastTs = 0;
+
+    // Target rotation state
+    let targetIdx = Math.floor(Math.random() * POSE_LIBRARY.length);
+    let target = POSE_LIBRARY[targetIdx];
+    let targetStartedAt = 0;
+    let peakSim = 0;
+    let lastBeatSeen = 0;
+    let beatsCounted = 0;
+
+    function rotateTarget(now: number) {
+      // Pick a different pose than the current one
+      let next = Math.floor(Math.random() * POSE_LIBRARY.length);
+      if (POSE_LIBRARY.length > 1 && next === targetIdx) {
+        next = (next + 1) % POSE_LIBRARY.length;
+      }
+      targetIdx = next;
+      target = POSE_LIBRARY[next];
+      targetStartedAt = now;
+      peakSim = 0;
+      beatsCounted = 0;
+    }
 
     const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
@@ -87,6 +96,7 @@ export function usePoseScore(
           numPoses: 1,
         });
         if (cancelled) return;
+        targetStartedAt = performance.now();
         loop();
       } catch (err) {
         console.error("[pose-score] init failed", err);
@@ -98,9 +108,8 @@ export function usePoseScore(
       rafId = requestAnimationFrame(loop);
       if (!landmarker || video.readyState < 2) return;
 
-      // Cap at ~30fps to keep the main thread responsive
       const ts = performance.now();
-      if (ts - lastTs < 33) return;
+      if (ts - lastTs < 33) return; // ~30 fps cap
       lastTs = ts;
 
       let result;
@@ -113,72 +122,61 @@ export function usePoseScore(
 
       const cur = result.landmarks[0];
 
-      // Per-joint velocity with a noise floor — only joints that actually
-      // moved counted. Static body = 0 active joints = 0 activity.
-      let activeJoints = 0;
-      let totalActiveVel = 0;
+      // Light-weight activity reading for the debug log (not used for score)
+      let activityRaw = 0;
       if (prev) {
-        for (const i of JOINTS) {
+        let sum = 0;
+        let n = 0;
+        for (let i = 11; i <= 32; i++) {
           const a = prev[i];
           const b = cur[i];
           if (!a || !b) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
-          const v = Math.sqrt(dx * dx + dy * dy);
-          if (v > PER_JOINT_NOISE_FLOOR) {
-            activeJoints++;
-            totalActiveVel += v;
+          sum += Math.sqrt(dx * dx + dy * dy);
+          n++;
+        }
+        activityRaw = n > 0 ? sum / n : 0;
+      }
+
+      // Rotate the target pose on beat boundaries (or on fallback timer)
+      const musicOn = beatState.isActive;
+      if (musicOn) {
+        if (beatState.lastFlashAt > lastBeatSeen) {
+          lastBeatSeen = beatState.lastFlashAt;
+          beatsCounted++;
+          if (beatsCounted >= BEATS_PER_POSE) {
+            rotateTarget(ts);
           }
         }
+      } else if (ts - targetStartedAt > FALLBACK_POSE_MS) {
+        rotateTarget(ts);
       }
 
-      const avgActiveVel = activeJoints > 0 ? totalActiveVel / activeJoints : 0;
-      // Boost by fraction of body active so full-body movement beats single-limb flails
-      const jointFraction = activeJoints / JOINTS.length;
-      const instant = avgActiveVel * (0.4 + 0.6 * jointFraction);
-      emaActivity =
-        emaActivity * (1 - ACTIVITY_EMA) + instant * ACTIVITY_EMA;
-      const rawActivity = Math.max(0, Math.min(100, emaActivity * ACTIVITY_SCALE));
+      // Score against the current target
+      const sim = poseSimilarity(cur, target);
+      if (sim > peakSim) peakSim = sim;
 
-      // Beat-window gate
-      const musicOn = beatState.isActive;
-      const lastBeat = beatState.lastFlashAt;
-      let beatCloseness = 0;
-      let inBeatWindow = false;
-      if (lastBeat > 0) {
-        const timeSince = ts - lastBeat;
-        if (timeSince <= BEAT_WINDOW_MS) {
-          inBeatWindow = true;
-          beatCloseness = 1 - timeSince / BEAT_WINDOW_MS;
-        }
-      }
-
-      // Final score: strict gate when music is playing, pure activity otherwise
-      let finalRaw: number;
-      if (musicOn) {
-        finalRaw = rawActivity * (OFF_BEAT_FLOOR + (1 - OFF_BEAT_FLOOR) * beatCloseness);
-      } else {
-        finalRaw = rawActivity;
-      }
-      const s = Math.max(0, Math.min(100, Math.round(finalRaw)));
+      const liveScore = Math.max(0, Math.min(100, Math.round(sim * 100)));
 
       frameRef.current = {
         landmarks: cur,
-        score: s,
+        score: liveScore,
         updatedAt: ts,
-        activeJoints,
-        totalJoints: JOINTS.length,
-        rawActivity,
-        beatCloseness,
-        inBeatWindow,
+        target,
+        targetIdx,
+        similarity: sim,
+        peakSimilarity: peakSim,
+        timeInWindow: ts - targetStartedAt,
         musicOn,
         bassIntensity: beatState.intensity,
         bpm: beatState.bpm,
+        activity: activityRaw,
       };
 
       if (ts - lastSetAt > 100) {
         lastSetAt = ts;
-        setScore(s);
+        setScore(liveScore);
       }
       prev = cur;
     }
