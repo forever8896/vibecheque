@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Match, MatchPhase } from "./useMatch";
+import { useAudioBeats } from "./beats";
 
 // Demo track committed at public/harnas-ice-tea.mp3.
 // If autoplay is blocked, a "tap to enable audio" pill shows up.
@@ -17,8 +18,12 @@ export function SyncedMusic({
   secondsElapsed: number;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const [needsGesture, setNeedsGesture] = useState(false);
   const [missing, setMissing] = useState(false);
+
+  // Kick off beat detection against the live <audio> element
+  useAudioBeats(audioEl);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -60,7 +65,10 @@ export function SyncedMusic({
   return (
     <>
       <audio
-        ref={audioRef}
+        ref={(el) => {
+          audioRef.current = el;
+          setAudioEl(el);
+        }}
         src={TRACK_SRC}
         preload="auto"
         onError={() => setMissing(true)}

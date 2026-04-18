@@ -6,11 +6,16 @@ import {
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 import { useEffect, useRef, useState } from "react";
+import { beatState } from "./beats";
 
 export type PoseFrame = {
   landmarks: NormalizedLandmark[];
   score: number;
   updatedAt: number;
+  // Activity-only component (before rhythm weighting), 0-100
+  activity: number;
+  // Rhythm alignment 0-1 over a rolling window
+  rhythm: number;
 };
 
 const WASM_BASE =
@@ -39,6 +44,14 @@ export function usePoseScore(
     let ema = 0;
     let lastSetAt = 0;
     let lastTs = 0;
+
+    // Rhythm tracking: increment on each new beat from beats.ts
+    let lastBeatSeen = 0;
+    let beatsHit = 0; // decaying "weighted count of beats caught"
+    let beatsTotal = 0; // decaying total beats seen
+    const RHYTHM_HALF_LIFE_MS = 4500; // ~4.5s memory
+    const CATCH_THRESHOLD = 30; // activity score above which a beat counts as hit
+    let rhythm = 1; // latest rhythm alignment 0-1
 
     const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
@@ -103,14 +116,55 @@ export function usePoseScore(
         const instant = n > 0 ? sum / n : 0;
         ema = ema * (1 - EMA_ALPHA) + instant * EMA_ALPHA;
 
-        const s = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
-        frameRef.current = { landmarks: cur, score: s, updatedAt: ts };
+        const activity = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
+
+        // --- rhythm alignment ------------------------------------------------
+        // Exponential decay of both "caught" and "total" counters so recent
+        // beats matter most.
+        const dt = ts - (frameRef.current?.updatedAt ?? ts);
+        if (dt > 0) {
+          const decay = Math.pow(0.5, dt / RHYTHM_HALF_LIFE_MS);
+          beatsHit *= decay;
+          beatsTotal *= decay;
+        }
+        // If a new beat was registered since we last looked, evaluate it
+        const beatTs = beatState.lastFlashAt;
+        if (beatTs > lastBeatSeen) {
+          lastBeatSeen = beatTs;
+          beatsTotal += 1;
+          if (activity >= CATCH_THRESHOLD) beatsHit += 1;
+        }
+        if (beatState.isActive && beatsTotal > 0.05) {
+          rhythm = Math.max(0, Math.min(1, beatsHit / beatsTotal));
+        } else {
+          // No beats yet → no rhythm penalty
+          rhythm = 1;
+        }
+
+        // Weight: 40% activity floor + 60% weighted by rhythm alignment
+        const s = Math.max(
+          0,
+          Math.min(100, Math.round(activity * (0.4 + 0.6 * rhythm))),
+        );
+        frameRef.current = {
+          landmarks: cur,
+          score: s,
+          updatedAt: ts,
+          activity,
+          rhythm,
+        };
         if (ts - lastSetAt > 100) {
           lastSetAt = ts;
           setScore(s);
         }
       } else {
-        frameRef.current = { landmarks: cur, score: 0, updatedAt: ts };
+        frameRef.current = {
+          landmarks: cur,
+          score: 0,
+          updatedAt: ts,
+          activity: 0,
+          rhythm: 1,
+        };
       }
       prev = cur;
     }

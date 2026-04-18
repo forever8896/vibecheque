@@ -25,6 +25,7 @@ import {
   ScoreCallouts,
   tileVideoFilter,
 } from "./BodyFX";
+import { BeatPulse } from "./BeatPulse";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -322,6 +323,7 @@ function RoomInner() {
       </div>
       <RoomAudioRenderer />
       <SyncedMusic match={match} phase={phase} secondsElapsed={secondsElapsed} />
+      <BeatPulse />
     </div>
   );
 }
