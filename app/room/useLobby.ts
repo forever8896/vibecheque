@@ -13,6 +13,7 @@ type LobbySnapshot = {
   maxPlayers: number;
   match: Match | null;
   nextMatchId: string;
+  selectedTrackId: string | null;
   serverNow: number;
 };
 
@@ -23,6 +24,7 @@ export type Lobby = {
   locked: boolean;
   match: Match | null;
   nextMatchId: string | null;
+  selectedTrackId: string | null;
   phase: MatchPhase;
   secondsToStart: number;
   secondsElapsed: number;
@@ -30,6 +32,7 @@ export type Lobby = {
   progress: number;
   startMatch: (duration?: number) => Promise<Match | null>;
   ingestBroadcast: (match: Match, serverNow?: number) => void;
+  selectTrack: (trackId: string) => Promise<boolean>;
 };
 
 const HEARTBEAT_MS = 4_000;
@@ -132,6 +135,32 @@ export function useLobby(
     [],
   );
 
+  const selectTrack = useCallback(
+    async (trackId: string): Promise<boolean> => {
+      const snap = snapshot;
+      if (!snap) return false;
+      // Optimistic update so the UI feels instant
+      setSnapshot((prev) =>
+        prev ? { ...prev, selectedTrackId: trackId } : prev,
+      );
+      try {
+        const r = await fetch("/api/lobby/track", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ roomName: snap.roomName, trackId }),
+        });
+        if (!r.ok) return false;
+        const data = (await r.json()) as LobbySnapshot;
+        setSnapshot(data);
+        setServerOffset(data.serverNow - Date.now());
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [snapshot],
+  );
+
   const derived = useMemo(() => {
     const match = snapshot?.match ?? null;
     const now = tick;
@@ -166,8 +195,10 @@ export function useLobby(
     locked: snapshot?.locked ?? false,
     match: snapshot?.match ?? null,
     nextMatchId: snapshot?.nextMatchId ?? null,
+    selectedTrackId: snapshot?.selectedTrackId ?? null,
     ...derived,
     startMatch,
     ingestBroadcast,
+    selectTrack,
   };
 }

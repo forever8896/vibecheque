@@ -29,18 +29,20 @@ const CONN: [number, number][] = [
 
 export function ChoreoOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { match, phase, localFrameRef } = useSession();
+  const { match, phase, localFrameRef, selectedTrackId } = useSession();
   const [choreo, setChoreo] = useState<Choreo | null>(null);
 
   useEffect(() => {
+    setChoreo(null);
+    if (!selectedTrackId) return;
     let cancelled = false;
-    void loadChoreo().then((c) => {
+    void loadChoreo(selectedTrackId).then((c) => {
       if (!cancelled) setChoreo(c);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedTrackId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

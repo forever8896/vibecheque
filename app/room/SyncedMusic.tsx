@@ -4,23 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import type { Match, MatchPhase } from "./useLobby";
 import { useAudioBeats } from "./beats";
 
-// Demo track committed at public/harnas-ice-tea.mp3.
-// If autoplay is blocked, a "tap to enable audio" pill shows up.
-const TRACK_SRC = "/harnas-ice-tea.mp3";
-
+// Each track ships audio under /tracks/<id>/audio.mp3
 export function SyncedMusic({
   match,
   phase,
   secondsElapsed,
+  trackId,
 }: {
   match: Match | null;
   phase: MatchPhase;
   secondsElapsed: number;
+  trackId: string | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const [needsGesture, setNeedsGesture] = useState(false);
   const [missing, setMissing] = useState(false);
+
+  const src = trackId ? `/tracks/${trackId}/audio.mp3` : "";
 
   // Kick off beat detection against the live <audio> element
   useAudioBeats(audioEl);
@@ -64,15 +65,18 @@ export function SyncedMusic({
 
   return (
     <>
-      <audio
-        ref={(el) => {
-          audioRef.current = el;
-          setAudioEl(el);
-        }}
-        src={TRACK_SRC}
-        preload="auto"
-        onError={() => setMissing(true)}
-      />
+      {src && (
+        <audio
+          key={src}
+          ref={(el) => {
+            audioRef.current = el;
+            setAudioEl(el);
+          }}
+          src={src}
+          preload="auto"
+          onError={() => setMissing(true)}
+        />
+      )}
       {needsGesture && !missing && (
         <button
           onClick={enable}
@@ -83,7 +87,7 @@ export function SyncedMusic({
       )}
       {missing && phase === "playing" && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 backdrop-blur">
-          no audio · /public/harnas-ice-tea.mp3 missing
+          no audio · {src || "no track selected"}
         </div>
       )}
     </>

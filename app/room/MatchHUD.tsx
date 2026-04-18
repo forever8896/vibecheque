@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
 import { matchLogToText } from "./useMatchLog";
+import { TrackSelector } from "./TrackSelector";
 
 function useArmsUpGesture(onFire: () => void, enabled: boolean) {
   const { localFrameRef } = useSession();
@@ -104,6 +105,8 @@ export function MatchHUD() {
     const ready = lobbyCount >= 1 && !lobbyLocked;
     return (
       <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-end gap-4 pb-8">
+        <TrackSelector />
+
         <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 backdrop-blur">
           <span
             className={`h-1.5 w-1.5 rounded-full ${

@@ -19,34 +19,39 @@ export type Choreo = {
   frames: ChoreoFrame[];
 };
 
-let cached: Choreo | null = null;
-let loading: Promise<Choreo | null> | null = null;
+const cache = new Map<string, Choreo>();
+const inFlight = new Map<string, Promise<Choreo | null>>();
 
-export async function loadChoreo(): Promise<Choreo | null> {
+export async function loadChoreo(
+  trackId: string | null,
+): Promise<Choreo | null> {
+  if (!trackId) return null;
+  const cached = cache.get(trackId);
   if (cached) return cached;
-  if (loading) return loading;
-  loading = fetch("/choreo.json", { cache: "force-cache" })
+  const pending = inFlight.get(trackId);
+  if (pending) return pending;
+  const p = fetch(`/tracks/${trackId}/choreo.json`, { cache: "force-cache" })
     .then((r) => (r.ok ? (r.json() as Promise<Choreo>) : null))
     .then((c) => {
       if (c && c.frames && c.frames.length > 0) {
-        cached = c;
+        cache.set(trackId, c);
         console.log(
-          "[choreo] loaded",
-          c.frameCount,
-          "frames over",
-          c.durationMs,
-          "ms",
+          `[choreo] loaded ${trackId}: ${c.frameCount} frames / ${c.durationMs}ms`,
         );
         return c;
       }
-      console.warn("[choreo] /choreo.json missing or empty");
+      console.warn(`[choreo] /tracks/${trackId}/choreo.json missing or empty`);
       return null;
     })
     .catch((e) => {
-      console.warn("[choreo] fetch failed", e);
+      console.warn(`[choreo] fetch failed for ${trackId}`, e);
       return null;
+    })
+    .finally(() => {
+      inFlight.delete(trackId);
     });
-  return loading;
+  inFlight.set(trackId, p);
+  return p;
 }
 
 // Binary search the frame at or before tMs (wraps around on loop)

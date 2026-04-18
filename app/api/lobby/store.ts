@@ -16,6 +16,8 @@ export type Room = {
   match: Match | null;
   // Id that the *next* match will use — players can pre-stake into it
   nextMatchId: string;
+  // Track chosen for the next match
+  selectedTrackId: string | null;
 };
 
 export const ROOM_MAX = 4;
@@ -28,6 +30,32 @@ export const UNLOCK_GRACE_MS = 30_000;
 const g = globalThis as unknown as { __vibecheque_rooms?: Map<string, Room> };
 export const rooms: Map<string, Room> =
   g.__vibecheque_rooms ?? (g.__vibecheque_rooms = new Map());
+
+// Read tracks/index.json once per process to find the default track id
+let defaultTrackId: string | null | undefined;
+export function getDefaultTrackId(): string | null {
+  if (defaultTrackId !== undefined) return defaultTrackId;
+  try {
+    // Lazy require to avoid pulling fs into edge builds
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const indexPath = path.join(
+      process.cwd(),
+      "public",
+      "tracks",
+      "index.json",
+    );
+    const raw = fs.readFileSync(indexPath, "utf8");
+    const parsed = JSON.parse(raw) as { tracks?: Array<{ id: string }> };
+    defaultTrackId = parsed.tracks?.[0]?.id ?? null;
+    return defaultTrackId;
+  } catch {
+    defaultTrackId = null;
+    return null;
+  }
+}
 
 export function prune(now: number = Date.now()) {
   for (const room of rooms.values()) {
@@ -62,6 +90,7 @@ export function snapshot(room: Room, now: number) {
     maxPlayers: ROOM_MAX,
     match: room.match,
     nextMatchId: room.nextMatchId,
+    selectedTrackId: room.selectedTrackId,
     serverNow: now,
   };
 }
@@ -103,6 +132,7 @@ export function findOrAssign(
     locked: false,
     match: null,
     nextMatchId: randomMatchId(),
+    selectedTrackId: getDefaultTrackId(),
   };
   rooms.set(room.name, room);
   return room;

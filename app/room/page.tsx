@@ -339,7 +339,8 @@ function Stage() {
 }
 
 function RoomInner() {
-  const { match, phase, secondsElapsed, roomName, meetMode } = useSession();
+  const { match, phase, secondsElapsed, roomName, meetMode, selectedTrackId } =
+    useSession();
   return (
     <div className="fixed inset-0 flex flex-col bg-black">
       <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
@@ -359,6 +360,7 @@ function RoomInner() {
         match={match}
         phase={phase}
         secondsElapsed={secondsElapsed}
+        trackId={selectedTrackId}
       />
       {!meetMode && <BeatPulse />}
     </div>

@@ -52,6 +52,8 @@ type Session = {
   lobbyLocked: boolean;
   nextMatchId: string | null;
   activeMatchId: string | null;
+  selectedTrackId: string | null;
+  selectTrack: (trackId: string) => Promise<boolean>;
   meetMode: boolean;
   enterMeet: () => void;
   exitMeet: () => void;
@@ -82,6 +84,8 @@ const SessionContext = createContext<Session>({
   lobbyLocked: false,
   nextMatchId: null,
   activeMatchId: null,
+  selectedTrackId: null,
+  selectTrack: async () => false,
   meetMode: false,
   enterMeet: () => {},
   exitMeet: () => {},
@@ -164,6 +168,7 @@ export function SessionProvider({
     maxPlayers,
     locked: lobbyLocked,
     nextMatchId,
+    selectedTrackId,
     match,
     phase,
     secondsToStart,
@@ -172,6 +177,7 @@ export function SessionProvider({
     progress,
     startMatch: startMatchBase,
     ingestBroadcast,
+    selectTrack,
   } = lobby;
   const activeMatchId = match?.id ?? null;
 
@@ -213,17 +219,20 @@ export function SessionProvider({
   const forcedTargetName =
     lobby.phase === "idle" ? "ARMS_UP" : null;
 
-  // Load choreography JSON once; keep a ref so the pose loop can reach it
+  // Load choreography JSON for the currently-selected track; refresh when
+  // the selection changes so ChoreoOverlay + scorer pick up the swap.
   const choreoRef = useRef<Choreo | null>(null);
   useEffect(() => {
+    choreoRef.current = null;
+    if (!selectedTrackId) return;
     let cancelled = false;
-    void loadChoreo().then((c) => {
+    void loadChoreo(selectedTrackId).then((c) => {
       if (!cancelled) choreoRef.current = c;
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedTrackId]);
 
   // Match start time (perf-now scale) so the choreography stays aligned
   const matchStartPerfRef = useRef<number | null>(null);
@@ -436,6 +445,8 @@ export function SessionProvider({
       lobbyLocked,
       nextMatchId,
       activeMatchId,
+      selectedTrackId,
+      selectTrack,
       meetMode,
       enterMeet,
       exitMeet,
@@ -460,6 +471,8 @@ export function SessionProvider({
       lobbyLocked,
       nextMatchId,
       activeMatchId,
+      selectedTrackId,
+      selectTrack,
       meetMode,
       enterMeet,
       exitMeet,

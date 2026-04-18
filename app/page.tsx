@@ -21,13 +21,20 @@ export default function Home() {
     setTimeout(() => setStep("sunglasses"), 600);
   }, []);
 
-  // Sunglasses detected → guest mode, off to /room
+  // Sunglasses detected → advance step. Kept separate from the navigation
+  // effect below so setStep doesn't trigger its own cleanup and cancel the
+  // pending router.push.
   useEffect(() => {
-    if (step !== "sunglasses" || !gatePassed) return;
-    setStep("entering");
+    if (step === "sunglasses" && gatePassed) setStep("entering");
+  }, [step, gatePassed]);
+
+  // Once we're in the entering step, schedule the route push. The timeout is
+  // only cleared when we leave the entering step (e.g. on unmount).
+  useEffect(() => {
+    if (step !== "entering") return;
     const id = setTimeout(() => router.push("/room"), 600);
     return () => clearTimeout(id);
-  }, [step, gatePassed, router]);
+  }, [step, router]);
 
   return (
     <>
