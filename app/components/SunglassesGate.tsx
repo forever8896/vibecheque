@@ -23,12 +23,21 @@ const RIGHT_EYE = [
   362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384,
   398,
 ];
-const FACE_REF = [10, 109, 338, 67, 297, 205, 425, 152];
+// Forehead only — avoid landmarks near brow/temple that a frame can occlude.
+const FACE_REF = [10, 109, 338, 151, 54, 284];
 
-const PASS_FRAMES = 8;
-const FAIL_FRAMES = 12;
-const CONTRAST_THRESHOLD = 22;
-const EYE_MAX_BRIGHTNESS = 85;
+// Pad eye bbox to cover the actual lens area, not just the eyelid aperture.
+const EYE_PAD_X = 0.25;
+const EYE_PAD_Y = 0.9;
+
+const PASS_FRAMES = 6;
+const FAIL_FRAMES = 14;
+// Eye region must be this much darker than face (ratio of face brightness).
+const DARKNESS_RATIO = 0.18;
+// Lens is visually uniform — sclera/pupil/iris mix gives stddev ~45–70.
+const UNIFORM_STDDEV = 28;
+// Fallback: very dark eye region regardless of face reference (heavily tinted).
+const VERY_DARK_EYE = 55;
 const MANUAL_OVERRIDE_AFTER_MS = 10_000;
 
 function clearOverlay(canvas: HTMLCanvasElement | null) {
@@ -200,12 +209,14 @@ function centerOf(
   };
 }
 
-function sampleBrightness(
+function sampleRegionStats(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   lm: { x: number; y: number }[],
   indices: number[],
-): number {
+  padX = 0,
+  padY = 0,
+): { mean: number; stddev: number } {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
@@ -218,7 +229,14 @@ function sampleBrightness(
     if (p.x > maxX) maxX = p.x;
     if (p.y > maxY) maxY = p.y;
   }
-  if (!isFinite(minX)) return 0;
+  if (!isFinite(minX)) return { mean: 0, stddev: 0 };
+
+  const dx = (maxX - minX) * padX;
+  const dy = (maxY - minY) * padY;
+  minX -= dx;
+  maxX += dx;
+  minY -= dy;
+  maxY += dy;
 
   const x = Math.max(0, Math.floor(minX * canvas.width));
   const y = Math.max(0, Math.floor(minY * canvas.height));
@@ -230,16 +248,22 @@ function sampleBrightness(
     canvas.height - y,
     Math.max(1, Math.ceil((maxY - minY) * canvas.height)),
   );
-  if (w <= 0 || h <= 0) return 0;
+  if (w <= 0 || h <= 0) return { mean: 0, stddev: 0 };
 
   const { data } = ctx.getImageData(x, y, w, h);
   let sum = 0;
+  let sumSq = 0;
   let n = 0;
   for (let i = 0; i < data.length; i += 4) {
-    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    sum += l;
+    sumSq += l * l;
     n++;
   }
-  return n ? sum / n : 0;
+  if (!n) return { mean: 0, stddev: 0 };
+  const mean = sum / n;
+  const variance = Math.max(0, sumSq / n - mean * mean);
+  return { mean, stddev: Math.sqrt(variance) };
 }
 
 export function SunglassesGate({
@@ -256,6 +280,7 @@ export function SunglassesGate({
   const [status, setStatus] = useState<Status>("loading");
   const [eyeB, setEyeB] = useState(0);
   const [faceB, setFaceB] = useState(0);
+  const [eyeStd, setEyeStd] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [manuallyOverridden, setManuallyOverridden] = useState(false);
 
@@ -353,17 +378,38 @@ export function SunglassesGate({
       if (!ctx) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const leftEyeB = sampleBrightness(ctx, canvas, lm, LEFT_EYE);
-      const rightEyeB = sampleBrightness(ctx, canvas, lm, RIGHT_EYE);
-      const eyesB = (leftEyeB + rightEyeB) / 2;
-      const refB = sampleBrightness(ctx, canvas, lm, FACE_REF);
+      const left = sampleRegionStats(
+        ctx,
+        canvas,
+        lm,
+        LEFT_EYE,
+        EYE_PAD_X,
+        EYE_PAD_Y,
+      );
+      const right = sampleRegionStats(
+        ctx,
+        canvas,
+        lm,
+        RIGHT_EYE,
+        EYE_PAD_X,
+        EYE_PAD_Y,
+      );
+      const eyeMean = (left.mean + right.mean) / 2;
+      const eyeStddev = (left.stddev + right.stddev) / 2;
+      const face = sampleRegionStats(ctx, canvas, lm, FACE_REF);
 
-      setEyeB(eyesB);
-      setFaceB(refB);
+      setEyeB(eyeMean);
+      setFaceB(face.mean);
+      setEyeStd(eyeStddev);
 
-      const darkerThanFace = refB - eyesB > CONTRAST_THRESHOLD;
-      const absoluteDark = eyesB < EYE_MAX_BRIGHTNESS;
-      const detected = darkerThanFace && absoluteDark;
+      // Ratio-based contrast works across skin tones + lighting far better
+      // than an absolute delta.
+      const darknessRatio =
+        face.mean > 8 ? (face.mean - eyeMean) / face.mean : 0;
+      const uniform = eyeStddev < UNIFORM_STDDEV;
+      const tintedDetected = darknessRatio > DARKNESS_RATIO && uniform;
+      const veryDarkDetected = eyeMean < VERY_DARK_EYE && eyeStddev < 40;
+      const detected = tintedDetected || veryDarkDetected;
 
       if (detected) {
         consecutivePass++;
@@ -465,7 +511,7 @@ export function SunglassesGate({
           />
           <span>{statusText[status]}</span>
           <span className="text-zinc-600">
-            {eyeB.toFixed(0)}/{faceB.toFixed(0)}
+            {eyeB.toFixed(0)}/{faceB.toFixed(0)} σ{eyeStd.toFixed(0)}
           </span>
         </div>
       </div>
