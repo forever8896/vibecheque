@@ -22,6 +22,7 @@ import {
 } from "react";
 import type { Lobby, Match, MatchPhase } from "./useLobby";
 import { usePoseScore, type PoseFrame } from "./usePoseScore";
+import { onChainReady } from "@/app/chain/config";
 
 type Session = {
   scores: Map<string, number>;
@@ -119,6 +120,7 @@ export function SessionProvider({
   const winningsRef = useRef(winnings);
   winningsRef.current = winnings;
   useEffect(() => {
+    if (!onChainReady()) return;
     if (lobby.phase !== "ended") return;
     const m = lobby.match;
     if (!m) return;

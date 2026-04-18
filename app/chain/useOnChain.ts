@@ -112,8 +112,10 @@ export function useOnChain(opts: {
     }
   }, [address, nextMatchId, activeMatchId]);
 
-  // Refetch on address or match id change, plus a slow poll while mounted
+  // Refetch on address or match id change, plus a slow poll while mounted.
+  // Skip entirely when on-chain is disabled so there's zero network chatter.
   useEffect(() => {
+    if (!onChainReady()) return;
     void refresh();
     const id = setInterval(refresh, 8_000);
     return () => clearInterval(id);

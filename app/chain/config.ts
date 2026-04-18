@@ -24,6 +24,12 @@ export function matchIdToBytes32(id: string): Hex {
   return hex as Hex;
 }
 
+// Feature flag — when false, StakePill, settle-on-end, and on-chain reads
+// all short-circuit. The client-side money-flow simulation still runs so
+// the visual "streams" UX is unaffected.
+export const ONCHAIN_ENABLED =
+  (process.env.NEXT_PUBLIC_ONCHAIN_ENABLED ?? "false").toLowerCase() === "true";
+
 export function onChainReady(): boolean {
-  return !!VUSD_ADDRESS && !!ESCROW_ADDRESS;
+  return ONCHAIN_ENABLED && !!VUSD_ADDRESS && !!ESCROW_ADDRESS;
 }
