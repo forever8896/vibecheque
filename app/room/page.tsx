@@ -19,14 +19,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
-  BodyAura,
   FlowPill,
   PlayerTint,
   ScoreCallouts,
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
-import { PoseGhostFigure, PoseGhostLabel } from "./PoseGhost";
+import { PoseGhostLabel } from "./PoseGhost";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -225,8 +224,6 @@ function DanceTile() {
             className="absolute inset-0"
           >
             <AttachedVideo publication={camPub} />
-            {isLocal && showGameOverlays && <BodyAura />}
-            {isLocal && active && showGameOverlays && <PoseGhostFigure />}
           </div>
         </div>
       ) : (
