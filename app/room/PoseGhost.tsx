@@ -5,9 +5,11 @@ import { BONES } from "./poseLibrary";
 import { useSession } from "./SessionProvider";
 
 // ------- Figure ----------
-// Canvas stick-figure drawn at the player's actual shoulders/hips. Meant
-// to live *inside* the tile's tracking wrapper so it pans/zooms with the
-// video and the CSS mirror. No self-mirror on this canvas.
+// Per-bone target guides that sit on top of the real MediaPipe skeleton
+// (BodyAura). For each bone in the active pose we draw a faded ghost line
+// from the player's actual parent joint in the target direction, same
+// length as their real bone. When the player rotates their limb to match,
+// their colored skeleton line covers the ghost. No separate stick figure.
 export function PoseGhostFigure() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { localFrameRef } = useSession();
@@ -58,118 +60,84 @@ export function PoseGhostFigure() {
         lastTargetIdx = f.targetIdx;
         fadeIn = 0;
       }
-      fadeIn = Math.min(1, fadeIn + 0.06);
+      fadeIn = Math.min(1, fadeIn + 0.07);
 
-      // Anchor on the player's actual torso landmarks
       const lm = f.landmarks;
-      const ls = lm[11];
-      const rs = lm[12];
-      const lh = lm[23];
-      const rh = lm[24];
-      if (!ls || !rs || !lh || !rh) return;
-      if (
-        (ls.visibility ?? 1) < 0.3 ||
-        (rs.visibility ?? 1) < 0.3 ||
-        (lh.visibility ?? 1) < 0.3 ||
-        (rh.visibility ?? 1) < 0.3
-      ) {
-        return;
-      }
-
-      const shoulderL = { x: ls.x * w, y: ls.y * h };
-      const shoulderR = { x: rs.x * w, y: rs.y * h };
-      const hipL = { x: lh.x * w, y: lh.y * h };
-      const hipR = { x: rh.x * w, y: rh.y * h };
-
-      const shoulderMid = {
-        x: (shoulderL.x + shoulderR.x) / 2,
-        y: (shoulderL.y + shoulderR.y) / 2,
-      };
-      const hipMid = {
-        x: (hipL.x + hipR.x) / 2,
-        y: (hipL.y + hipR.y) / 2,
-      };
-      const torsoHeight = Math.max(
-        40,
-        Math.hypot(shoulderMid.x - hipMid.x, shoulderMid.y - hipMid.y),
-      );
-
-      const upperArmLen = torsoHeight * 0.55;
-      const forearmLen = torsoHeight * 0.55;
-      const thighLen = torsoHeight * 0.75;
-      const shinLen = torsoHeight * 0.75;
-
-      const joints = new Map<number, { x: number; y: number }>();
-      joints.set(11, shoulderL);
-      joints.set(12, shoulderR);
-      joints.set(23, hipL);
-      joints.set(24, hipR);
-
-      const getLen = (from: number, to: number) => {
-        if (from === 11 && to === 13) return upperArmLen;
-        if (from === 13 && to === 15) return forearmLen;
-        if (from === 12 && to === 14) return upperArmLen;
-        if (from === 14 && to === 16) return forearmLen;
-        if (from === 23 && to === 25) return thighLen;
-        if (from === 25 && to === 27) return shinLen;
-        if (from === 24 && to === 26) return thighLen;
-        if (from === 26 && to === 28) return shinLen;
-        return torsoHeight * 0.5;
-      };
-
-      // Color blends white → neon green as similarity climbs
-      const sim = f.similarity;
-      const mix = Math.max(0, Math.min(1, sim));
-      const rC = Math.round(255 * (1 - mix) + 74 * mix);
-      const gC = Math.round(255 * (1 - mix) + 222 * mix);
-      const bC = Math.round(255 * (1 - mix) + 128 * mix);
-      const alpha = (0.5 + mix * 0.4) * fadeIn;
-      const strokeColor = `rgba(${rC}, ${gC}, ${bC}, ${alpha})`;
-      const glowColor = `rgba(${rC}, ${gC}, ${bC}, ${alpha * 0.9})`;
+      const pulse = 0.85 + 0.15 * Math.sin(now / 220);
 
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.strokeStyle = strokeColor;
-      ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 14 * fadeIn;
-      ctx.lineWidth = Math.max(6, torsoHeight * 0.08);
 
-      // Torso frame
-      ctx.beginPath();
-      ctx.moveTo(shoulderL.x, shoulderL.y);
-      ctx.lineTo(shoulderR.x, shoulderR.y);
-      ctx.moveTo(hipL.x, hipL.y);
-      ctx.lineTo(hipR.x, hipR.y);
-      ctx.moveTo(shoulderL.x, shoulderL.y);
-      ctx.lineTo(hipL.x, hipL.y);
-      ctx.moveTo(shoulderR.x, shoulderR.y);
-      ctx.lineTo(hipR.x, hipR.y);
-      ctx.stroke();
-
-      // Limbs driven by target pose vectors
       for (let i = 0; i < BONES.length; i++) {
         const bone = BONES[i];
-        const vec = target.vectors[i];
-        const start = joints.get(bone.from);
-        if (!start || !vec) continue;
-        const len = getLen(bone.from, bone.to);
-        const end = {
-          x: start.x + vec[0] * len,
-          y: start.y + vec[1] * len,
-        };
-        joints.set(bone.to, end);
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
-      }
+        const targetVec = target.vectors[i];
+        if (!targetVec) continue;
 
-      // Head circle
-      const headR = torsoHeight * 0.22;
-      ctx.beginPath();
-      ctx.arc(shoulderMid.x, shoulderMid.y - torsoHeight * 0.4, headR, 0, Math.PI * 2);
-      ctx.stroke();
+        const parent = lm[bone.from];
+        const child = lm[bone.to];
+        if (!parent || !child) continue;
+        if ((parent.visibility ?? 1) < 0.3) continue;
+
+        const px = parent.x * w;
+        const py = parent.y * h;
+
+        // Use the player's current bone length (fall back to a torso-based
+        // estimate if the child is hidden).
+        let realLen: number;
+        let alignment = 0;
+        if ((child.visibility ?? 1) >= 0.3) {
+          const dx = child.x - parent.x;
+          const dy = child.y - parent.y;
+          const mag = Math.hypot(dx, dy);
+          realLen = Math.hypot(dx * w, dy * h);
+          if (mag > 0.001) {
+            const ux = dx / mag;
+            const uy = dy / mag;
+            alignment = Math.max(
+              0,
+              ux * targetVec[0] + uy * targetVec[1],
+            );
+          }
+        } else {
+          realLen = 0.18 * h; // default limb length when hidden
+        }
+        if (realLen < 30) realLen = 30;
+
+        const gx = px + targetVec[0] * realLen;
+        const gy = py + targetVec[1] * realLen;
+
+        // The ghost fades out as the player aligns with it — aligned bones
+        // get a brief green flash instead of clutter.
+        const misalign = 1 - alignment;
+        const aligned = alignment > 0.82;
+
+        const baseAlpha = (aligned ? 0.35 : 0.25 + misalign * 0.6) * fadeIn;
+        const pulseAlpha = aligned ? baseAlpha : baseAlpha * pulse;
+
+        // Color: misaligned = white/amber attention; aligned = neon green
+        const r = aligned ? 74 : 255;
+        const g = aligned ? 222 : 236;
+        const b = aligned ? 128 : 180;
+
+        ctx.shadowBlur = aligned ? 14 : 10;
+        ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${pulseAlpha * 0.8})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${pulseAlpha})`;
+        ctx.setLineDash(aligned ? [] : [10, 8]);
+        ctx.lineWidth = aligned ? 6 : 5;
+
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(gx, gy);
+        ctx.stroke();
+
+        // Target endpoint dot to mark "put your wrist/ankle here"
+        ctx.setLineDash([]);
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${pulseAlpha})`;
+        ctx.beginPath();
+        ctx.arc(gx, gy, aligned ? 7 : 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       ctx.restore();
     }
