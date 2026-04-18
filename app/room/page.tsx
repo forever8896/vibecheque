@@ -28,6 +28,7 @@ import {
 import { BeatPulse } from "./BeatPulse";
 import { PoseGhostLabel } from "./PoseGhost";
 import { ChoreoOverlay } from "./ChoreoOverlay";
+import { DabOutline } from "./DabOutline";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -228,6 +229,9 @@ function DanceTile() {
             <AttachedVideo publication={camPub} />
             {isLocal && showGameOverlays && <BodyAura />}
             {isLocal && active && showGameOverlays && <ChoreoOverlay />}
+            {isLocal && phase === "idle" && showGameOverlays && (
+              <DabOutline />
+            )}
           </div>
         </div>
       ) : (

@@ -30,14 +30,19 @@ const FACE_REF = [10, 109, 338, 151, 54, 284];
 const EYE_PAD_X = 0.25;
 const EYE_PAD_Y = 0.9;
 
-const PASS_FRAMES = 6;
+const PASS_FRAMES = 10;
 const FAIL_FRAMES = 14;
 // Eye region must be this much darker than face (ratio of face brightness).
-const DARKNESS_RATIO = 0.18;
-// Lens is visually uniform — sclera/pupil/iris mix gives stddev ~45–70.
-const UNIFORM_STDDEV = 28;
-// Fallback: very dark eye region regardless of face reference (heavily tinted).
-const VERY_DARK_EYE = 55;
+// Bare-eye shadow typically lands in the 0.10–0.25 range; tinted lenses
+// drop well past 0.3.
+const DARKNESS_RATIO = 0.32;
+// Lens is visually uniform. Bare eye (sclera/pupil/iris/lashes) gives
+// stddev ~35–70 even in flat light; lenses are typically < 18.
+const UNIFORM_STDDEV = 20;
+// Fallback: very dark eye region regardless of face reference (heavily
+// tinted lenses). Bare brows/shadow rarely hit < 40 mean with low stddev.
+const VERY_DARK_EYE = 40;
+const VERY_DARK_EYE_STDDEV = 22;
 const MANUAL_OVERRIDE_AFTER_MS = 10_000;
 
 function clearOverlay(canvas: HTMLCanvasElement | null) {
@@ -408,7 +413,8 @@ export function SunglassesGate({
         face.mean > 8 ? (face.mean - eyeMean) / face.mean : 0;
       const uniform = eyeStddev < UNIFORM_STDDEV;
       const tintedDetected = darknessRatio > DARKNESS_RATIO && uniform;
-      const veryDarkDetected = eyeMean < VERY_DARK_EYE && eyeStddev < 40;
+      const veryDarkDetected =
+        eyeMean < VERY_DARK_EYE && eyeStddev < VERY_DARK_EYE_STDDEV;
       const detected = tintedDetected || veryDarkDetected;
 
       if (detected) {

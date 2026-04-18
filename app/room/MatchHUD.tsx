@@ -1,26 +1,16 @@
 "use client";
 
 import { useParticipants } from "@livekit/components-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
 import { matchLogToText } from "./useMatchLog";
 import { TrackSelector } from "./TrackSelector";
-import { POSE_LIBRARY, type PoseTarget } from "./poseLibrary";
-import { poseSimilarity } from "./poseMatcher";
+import { assessDab } from "./dabPose";
 
 function useDabGesture(onFire: () => void, enabled: boolean) {
   const { localFrameRef } = useSession();
   const [progress, setProgress] = useState(0);
-
-  // Accept either mirror of the dab — whichever side the player throws.
-  const dabTargets = useMemo<PoseTarget[]>(
-    () =>
-      POSE_LIBRARY.filter(
-        (p) => p.name === "DAB_LEFT" || p.name === "DAB_RIGHT",
-      ),
-    [],
-  );
 
   useEffect(() => {
     if (!enabled) {
@@ -33,8 +23,7 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
     let lastTs = performance.now();
     let lastSet = 0;
     let fired = false;
-    const THRESHOLD = 0.5;
-    const REQUIRED_MS = 1200;
+    const REQUIRED_MS = 1000;
 
     function loop() {
       if (cancelled) return;
@@ -43,23 +32,15 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
       const dt = now - lastTs;
       lastTs = now;
       const f = localFrameRef.current;
-      // Score against both mirrors so either side of the dab counts — the
-      // scorer only exposes similarity against the forced target, so we
-      // recompute locally against the other mirror too.
-      let sim = 0;
-      if (f?.landmarks) {
-        for (const t of dabTargets) {
-          const s = poseSimilarity(f.landmarks, t);
-          if (s > sim) sim = s;
-        }
-      }
-      if (sim > THRESHOLD) {
+      const matched = f?.landmarks
+        ? assessDab(f.landmarks).matched
+        : false;
+      if (matched) {
         hold += dt;
       } else {
         hold = Math.max(0, hold - dt * 1.8);
       }
       const p = Math.min(1, hold / REQUIRED_MS);
-      // Throttle state updates to ~15 Hz
       if (now - lastSet > 65 || p >= 1) {
         lastSet = now;
         setProgress(p);
@@ -74,7 +55,7 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [enabled, localFrameRef, onFire, dabTargets]);
+  }, [enabled, localFrameRef, onFire]);
 
   return progress;
 }

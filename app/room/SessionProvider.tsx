@@ -216,8 +216,9 @@ export function SessionProvider({
     };
   }, [localParticipant]);
 
-  const forcedTargetName =
-    lobby.phase === "idle" ? "DAB_LEFT" : null;
+  // Idle-phase dab detection is landmark-based (see dabPose.ts), so we
+  // don't force the scorer onto a DAB target here.
+  const forcedTargetName: string | null = null;
 
   // Load choreography JSON for the currently-selected track; refresh when
   // the selection changes so ChoreoOverlay + scorer pick up the swap.

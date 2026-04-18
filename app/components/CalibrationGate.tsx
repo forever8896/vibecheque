@@ -28,9 +28,11 @@ const MODEL_URL =
 // All thresholds in normalized source-video coords
 const MIN_TORSO_HEIGHT = 0.14;
 const MAX_TORSO_HEIGHT = 0.55;
-const CENTER_TOLERANCE = 0.22;
-const ARM_H_MIN = 0.12; // arm reach horizontally (shoulder→wrist)
-const ARM_V_MAX = 0.1; // arm vertical drift from shoulder height
+const CENTER_TOLERANCE = 0.15;
+const ARM_H_MIN = 0.22; // wrist must reach this far horizontally from shoulder
+const ARM_V_MAX = 0.04; // wrists must be within ±4% frame-height of shoulder Y
+const ELBOW_V_MAX = 0.05; // elbows must also be at shoulder height
+const SHOULDER_LEVEL_MAX = 0.04; // shoulder line must be horizontal
 const HOLD_FRAMES = 25;
 
 function assessPose(lm: NormalizedLandmark[]): {
@@ -44,6 +46,8 @@ function assessPose(lm: NormalizedLandmark[]): {
   const rs = lm[12];
   const lh = lm[23];
   const rh = lm[24];
+  const le = lm[13];
+  const re = lm[14];
   const lw = lm[15];
   const rw = lm[16];
   const shouldersVisible =
@@ -51,24 +55,43 @@ function assessPose(lm: NormalizedLandmark[]): {
   const hipsVisible =
     (lh?.visibility ?? 0) > 0.45 && (rh?.visibility ?? 0) > 0.45;
   const midX = ls && rs ? (ls.x + rs.x) / 2 : 0.5;
+  const shoulderY = ls && rs ? (ls.y + rs.y) / 2 : 0;
   const torsoHeight =
     ls && rs && lh && rh
-      ? Math.abs(((lh.y + rh.y) / 2) - ((ls.y + rs.y) / 2))
+      ? Math.abs(((lh.y + rh.y) / 2) - shoulderY)
       : 0;
   // person's left arm = landmarks 11 (shoulder) to 15 (wrist); in camera
   // coords the wrist extends further +x than the shoulder
   const leftArmDx = ls && lw ? lw.x - ls.x : 0;
-  const leftArmDy = ls && lw ? Math.abs(lw.y - ls.y) : 1;
+  const leftArmDy = lw ? Math.abs(lw.y - shoulderY) : 1;
   const rightArmDx = rs && rw ? rs.x - rw.x : 0;
-  const rightArmDy = rs && rw ? Math.abs(rw.y - rs.y) : 1;
-  const armsVisible =
-    (lw?.visibility ?? 0) > 0.45 && (rw?.visibility ?? 0) > 0.45;
+  const rightArmDy = rw ? Math.abs(rw.y - shoulderY) : 1;
+  const leftElbowDx = ls && le ? le.x - ls.x : 0;
+  const leftElbowDy = le ? Math.abs(le.y - shoulderY) : 1;
+  const rightElbowDx = rs && re ? rs.x - re.x : 0;
+  const rightElbowDy = re ? Math.abs(re.y - shoulderY) : 1;
+  const jointsVisible =
+    (lw?.visibility ?? 0) > 0.5 &&
+    (rw?.visibility ?? 0) > 0.5 &&
+    (le?.visibility ?? 0) > 0.5 &&
+    (re?.visibility ?? 0) > 0.5;
+  const shouldersLevel =
+    ls && rs ? Math.abs(ls.y - rs.y) < SHOULDER_LEVEL_MAX : false;
   const armsOut =
-    armsVisible &&
+    jointsVisible &&
+    shouldersLevel &&
+    // Wrists fully extended outward at shoulder height
     leftArmDx > ARM_H_MIN &&
     rightArmDx > ARM_H_MIN &&
     leftArmDy < ARM_V_MAX &&
-    rightArmDy < ARM_V_MAX;
+    rightArmDy < ARM_V_MAX &&
+    // Elbows between shoulder and wrist horizontally, at shoulder height
+    leftElbowDx > ARM_H_MIN * 0.35 &&
+    leftElbowDx < leftArmDx &&
+    rightElbowDx > ARM_H_MIN * 0.35 &&
+    rightElbowDx < rightArmDx &&
+    leftElbowDy < ELBOW_V_MAX &&
+    rightElbowDy < ELBOW_V_MAX;
   return { shouldersVisible, hipsVisible, armsOut, torsoHeight, midX };
 }
 
