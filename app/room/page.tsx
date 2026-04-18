@@ -5,116 +5,21 @@ import {
   LiveKitRoom,
   ParticipantTile,
   RoomAudioRenderer,
-  useLocalParticipant,
   useMaybeParticipantContext,
-  useMaybeRoomContext,
   useTracks,
 } from "@livekit/components-react";
-import {
-  LocalVideoTrack,
-  RoomEvent,
-  Track,
-  type RemoteParticipant,
-} from "livekit-client";
+import { Track } from "livekit-client";
 import Link from "next/link";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { usePoseScore } from "./usePoseScore";
-
-const ScoresContext = createContext<Map<string, number>>(new Map());
-
-function useScoreFor(identity: string | undefined): number {
-  const scores = useContext(ScoresContext);
-  return identity ? (scores.get(identity) ?? 0) : 0;
-}
-
-function ScoresProvider({ children }: { children: React.ReactNode }) {
-  const room = useMaybeRoomContext();
-  const { localParticipant } = useLocalParticipant();
-  const [scores, setScores] = useState<Map<string, number>>(new Map());
-
-  const [localTrack, setLocalTrack] = useState<MediaStreamTrack | null>(null);
-
-  useEffect(() => {
-    if (!localParticipant) return;
-    const sync = () => {
-      const pub = localParticipant.getTrackPublication(Track.Source.Camera);
-      const t = pub?.track;
-      setLocalTrack(
-        t instanceof LocalVideoTrack ? (t.mediaStreamTrack ?? null) : null,
-      );
-    };
-    sync();
-    localParticipant.on("trackPublished", sync);
-    localParticipant.on("trackUnpublished", sync);
-    localParticipant.on("localTrackPublished", sync);
-    return () => {
-      localParticipant.off("trackPublished", sync);
-      localParticipant.off("trackUnpublished", sync);
-      localParticipant.off("localTrackPublished", sync);
-    };
-  }, [localParticipant]);
-
-  const myScore = usePoseScore(localTrack);
-
-  useEffect(() => {
-    if (!localParticipant) return;
-    setScores((prev) => {
-      if (prev.get(localParticipant.identity) === myScore) return prev;
-      const next = new Map(prev);
-      next.set(localParticipant.identity, myScore);
-      return next;
-    });
-  }, [localParticipant, myScore]);
-
-  useEffect(() => {
-    if (!localParticipant) return;
-    const encoder = new TextEncoder();
-    const id = setInterval(() => {
-      const payload = encoder.encode(JSON.stringify({ score: myScore }));
-      localParticipant.publishData(payload, { reliable: false });
-    }, 500);
-    return () => clearInterval(id);
-  }, [localParticipant, myScore]);
-
-  useEffect(() => {
-    if (!room) return;
-    const decoder = new TextDecoder();
-    const onData = (payload: Uint8Array, participant?: RemoteParticipant) => {
-      if (!participant) return;
-      try {
-        const parsed = JSON.parse(decoder.decode(payload));
-        if (typeof parsed.score === "number") {
-          setScores((prev) => {
-            const next = new Map(prev);
-            next.set(participant.identity, parsed.score);
-            return next;
-          });
-        }
-      } catch {
-        // malformed payload, ignore
-      }
-    };
-    room.on(RoomEvent.DataReceived, onData);
-    return () => {
-      room.off(RoomEvent.DataReceived, onData);
-    };
-  }, [room]);
-
-  return (
-    <ScoresContext.Provider value={scores}>{children}</ScoresContext.Provider>
-  );
-}
+import { MatchHUD } from "./MatchHUD";
+import { SessionProvider, useSession } from "./SessionProvider";
+import { SyncedMusic } from "./SyncedMusic";
 
 function ScoreOverlay() {
   const participant = useMaybeParticipantContext();
-  const score = useScoreFor(participant?.identity);
+  const { scores } = useSession();
+  const score = participant ? (scores.get(participant.identity) ?? 0) : 0;
   const isLocal = participant?.isLocal ?? false;
 
   return (
@@ -160,6 +65,26 @@ function Stage() {
     >
       <DanceTile />
     </GridLayout>
+  );
+}
+
+function RoomInner() {
+  const { match, phase, secondsElapsed } = useSession();
+  return (
+    <div className="relative flex h-full flex-col">
+      <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
+        <span>VibeCheque · {process.env.NEXT_PUBLIC_ROOM_NAME}</span>
+        <Link href="/" className="text-zinc-400 hover:text-white">
+          leave
+        </Link>
+      </header>
+      <div className="relative flex-1 overflow-hidden px-2 pb-2">
+        <Stage />
+        <MatchHUD />
+      </div>
+      <RoomAudioRenderer />
+      <SyncedMusic match={match} phase={phase} secondsElapsed={secondsElapsed} />
+    </div>
   );
 }
 
@@ -212,6 +137,9 @@ export default function RoomPage() {
 
   if (!token || !wsUrl) return null;
 
+  // Keep `authenticated` referenced for linters, though routing already enforces it.
+  void authenticated;
+
   return (
     <main className="flex flex-1 flex-col">
       <LiveKitRoom
@@ -223,20 +151,9 @@ export default function RoomPage() {
         data-lk-theme="default"
         className="flex-1"
       >
-        <ScoresProvider>
-          <div className="flex h-full flex-col">
-            <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
-              <span>VibeCheque · {process.env.NEXT_PUBLIC_ROOM_NAME}</span>
-              <span>
-                {authenticated ? user?.wallet?.address?.slice(0, 8) : "guest"}
-              </span>
-            </header>
-            <div className="flex-1 overflow-hidden px-2 pb-2">
-              <Stage />
-            </div>
-            <RoomAudioRenderer />
-          </div>
-        </ScoresProvider>
+        <SessionProvider>
+          <RoomInner />
+        </SessionProvider>
       </LiveKitRoom>
     </main>
   );
