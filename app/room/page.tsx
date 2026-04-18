@@ -21,13 +21,14 @@ import { usePrivy } from "@privy-io/react-auth";
 import {
   BodyAura,
   FlowPill,
+  PlayerTint,
   ScoreCallouts,
-  TileAmbient,
   tileVideoFilter,
 } from "./BodyFX";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
+import type { PoseFrame } from "./usePoseScore";
 
 function ScoreOverlay() {
   const participant = useMaybeParticipantContext();
@@ -55,10 +56,14 @@ function ScoreOverlay() {
 
 function AttachedVideo({
   publication,
-  mirror,
+  className,
+  style,
+  onVideo,
 }: {
   publication: TrackPublication | undefined;
-  mirror: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  onVideo?: (video: HTMLVideoElement | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -67,10 +72,12 @@ function AttachedVideo({
     const track = publication?.track;
     if (!video || !track) return;
     track.attach(video);
+    onVideo?.(video);
     return () => {
       track.detach(video);
+      onVideo?.(null);
     };
-  }, [publication, publication?.track]);
+  }, [publication, publication?.track, onVideo]);
 
   return (
     <video
@@ -78,15 +85,94 @@ function AttachedVideo({
       autoPlay
       playsInline
       muted
-      className="h-full w-full object-cover"
-      style={mirror ? { transform: "scaleX(-1)" } : undefined}
+      className={
+        className ?? "absolute inset-0 h-full w-full object-cover"
+      }
+      style={style}
     />
   );
 }
 
+// Drives a shared CSS transform (mirror + pan/zoom to follow the dancer)
+// and applies it to any refs registered via addTarget.
+function useLocalCameraTracking(
+  localFrameRef: React.RefObject<PoseFrame | null> | null,
+  mirror: boolean,
+  active: boolean,
+) {
+  const targetsRef = useRef<Set<HTMLElement>>(new Set());
+  useEffect(() => {
+    let raf = 0;
+    let cancelled = false;
+    let smoothCx = 0.5;
+    let smoothCy = 0.5;
+    let smoothZoom = 1;
+
+    const MAX_PAN = 0.15; // fraction of tile
+    const BASE_ZOOM = 1.2;
+    const MIRROR_X = mirror ? -1 : 1;
+
+    function loop() {
+      if (cancelled) return;
+      raf = requestAnimationFrame(loop);
+
+      let targetCx = 0.5;
+      let targetCy = 0.5;
+      let targetZoom = 1;
+
+      if (active) {
+        const frame = localFrameRef?.current;
+        if (frame) {
+          const lm = frame.landmarks;
+          const pts = [lm[11], lm[12], lm[23], lm[24]].filter(Boolean);
+          if (pts.length === 4) {
+            targetCx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+            targetCy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+            targetZoom = BASE_ZOOM;
+          }
+        }
+      }
+
+      smoothCx = smoothCx * 0.92 + targetCx * 0.08;
+      smoothCy = smoothCy * 0.92 + targetCy * 0.08;
+      smoothZoom = smoothZoom * 0.92 + targetZoom * 0.08;
+
+      const dx = clamp(0.5 - smoothCx, -MAX_PAN, MAX_PAN);
+      const dy = clamp(0.5 - smoothCy, -MAX_PAN, MAX_PAN);
+
+      const transform = `scaleX(${MIRROR_X}) translate(${dx * 100}%, ${dy * 100}%) scale(${smoothZoom})`;
+      for (const el of targetsRef.current) {
+        el.style.transform = transform;
+        el.style.transformOrigin = "center center";
+      }
+    }
+
+    loop();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [localFrameRef, mirror, active]);
+
+  return {
+    register: (el: HTMLElement | null) => {
+      if (!el) return;
+      targetsRef.current.add(el);
+    },
+    unregister: (el: HTMLElement | null) => {
+      if (!el) return;
+      targetsRef.current.delete(el);
+    },
+  };
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 function DanceTile() {
   const participant = useMaybeParticipantContext();
-  const { scores, phase } = useSession();
+  const { scores, phase, localFrameRef } = useSession();
   const identity = participant?.identity;
   const isLocal = participant?.isLocal ?? false;
   const score = identity ? (scores.get(identity) ?? 0) : 0;
@@ -95,10 +181,16 @@ function DanceTile() {
   const camPub = participant?.getTrackPublication(Track.Source.Camera);
   const hasVideo = !!camPub?.track;
 
+  const trackingApi = useLocalCameraTracking(
+    localFrameRef,
+    isLocal,
+    isLocal,
+  );
+
   return (
     <div
       data-dance-tile={identity}
-      className="relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-zinc-900"
+      className="relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-black"
     >
       {hasVideo ? (
         <div
@@ -107,7 +199,13 @@ function DanceTile() {
             filter: active ? tileVideoFilter(score, isLocal) : "none",
           }}
         >
-          <AttachedVideo publication={camPub} mirror={isLocal} />
+          <div
+            ref={(el) => trackingApi.register(el)}
+            className="absolute inset-0"
+          >
+            <AttachedVideo publication={camPub} />
+            {isLocal && <BodyAura />}
+          </div>
         </div>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
@@ -119,8 +217,7 @@ function DanceTile() {
           </p>
         </div>
       )}
-      {isLocal && <BodyAura />}
-      <TileAmbient identity={identity} />
+      <PlayerTint identity={identity} active={active} />
       {isLocal && <ScoreCallouts />}
       <ScoreOverlay />
       <FlowPill identity={identity} />
@@ -159,14 +256,37 @@ function Stage() {
   }
 
   const n = participants.length;
-  const cols = n === 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+  let cols: number;
+  let rows: number;
+  if (n === 1) {
+    cols = 1;
+    rows = 1;
+  } else if (n === 2) {
+    cols = 2;
+    rows = 1;
+  } else if (n === 3) {
+    cols = 3;
+    rows = 1;
+  } else if (n === 4) {
+    cols = 2;
+    rows = 2;
+  } else if (n <= 6) {
+    cols = 3;
+    rows = 2;
+  } else if (n <= 9) {
+    cols = 3;
+    rows = 3;
+  } else {
+    cols = 4;
+    rows = Math.ceil(n / 4);
+  }
 
   return (
     <div
       className="grid h-full w-full gap-2"
       style={{
         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-        gridAutoRows: "minmax(0, 1fr)",
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
       }}
     >
       {participants.map((p) => {

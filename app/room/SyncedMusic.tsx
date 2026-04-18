@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Match, MatchPhase } from "./useMatch";
 
-// Drop a CC-licensed track at public/track.mp3 before the demo.
-// If the file is missing or autoplay is blocked, the match still runs
-// silently and a "tap to enable audio" pill shows up.
-const TRACK_SRC = "/track.mp3";
+// Demo track committed at public/harnas-ice-tea.mp3.
+// If autoplay is blocked, a "tap to enable audio" pill shows up.
+const TRACK_SRC = "/harnas-ice-tea.mp3";
 
 export function SyncedMusic({
   match,
@@ -76,7 +75,7 @@ export function SyncedMusic({
       )}
       {missing && phase === "playing" && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 backdrop-blur">
-          no audio · drop a CC track at /public/track.mp3
+          no audio · /public/harnas-ice-tea.mp3 missing
         </div>
       )}
     </>

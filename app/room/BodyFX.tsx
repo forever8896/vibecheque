@@ -3,44 +3,62 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 
-// MediaPipe pose landmark connections (subset that reads as a body skeleton)
-const CONNECTIONS: [number, number][] = [
-  // torso
-  [11, 12],
-  [11, 23],
-  [12, 24],
-  [23, 24],
-  // arms
-  [11, 13],
-  [13, 15],
-  [12, 14],
-  [14, 16],
-  // hands
-  [15, 17],
-  [15, 19],
-  [15, 21],
-  [17, 19],
-  [16, 18],
-  [16, 20],
-  [16, 22],
-  [18, 20],
-  // legs
-  [23, 25],
-  [25, 27],
-  [27, 29],
-  [29, 31],
-  [27, 31],
-  [24, 26],
-  [26, 28],
-  [28, 30],
-  [30, 32],
-  [28, 32],
-  // neck
-  [0, 11],
-  [0, 12],
+// Per-limb colors for the skeleton overlay
+type LimbGroup = { color: string; connections: [number, number][] };
+const LIMB_GROUPS: LimbGroup[] = [
+  // person's left arm
+  {
+    color: "#22d3ee",
+    connections: [
+      [11, 13],
+      [13, 15],
+      [15, 17],
+      [15, 19],
+    ],
+  },
+  // person's right arm
+  {
+    color: "#facc15",
+    connections: [
+      [12, 14],
+      [14, 16],
+      [16, 18],
+      [16, 20],
+    ],
+  },
+  // left leg
+  {
+    color: "#ff4df0",
+    connections: [
+      [23, 25],
+      [25, 27],
+      [27, 31],
+    ],
+  },
+  // right leg
+  {
+    color: "#4ade80",
+    connections: [
+      [24, 26],
+      [26, 28],
+      [28, 32],
+    ],
+  },
+  // torso + neck
+  {
+    color: "#ffffff",
+    connections: [
+      [11, 12],
+      [11, 23],
+      [12, 24],
+      [23, 24],
+      [0, 11],
+      [0, 12],
+    ],
+  },
 ];
 
-// Local tile: glowing aura skeleton drawn from the pose landmarks
+// Lightweight single-pass skeleton: one stroke with a glow per limb
 export function BodyAura() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { localFrameRef, phase } = useSession();
@@ -53,6 +71,7 @@ export function BodyAura() {
 
     let rafId = 0;
     let cancelled = false;
+    let lastTs = 0;
 
     function resize() {
       if (!canvas) return;
@@ -71,75 +90,48 @@ export function BodyAura() {
       rafId = requestAnimationFrame(draw);
       if (!canvas || !ctx) return;
 
+      // Cap at 30fps
+      const now = performance.now();
+      if (now - lastTs < 33) return;
+      lastTs = now;
+
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
       ctx.clearRect(0, 0, w, h);
 
-      const frame = localFrameRef.current;
-      if (!frame || phase === "idle") return;
+      if (phase === "idle") return;
 
-      const score = frame.score;
-      const intensity = Math.max(0.35, Math.min(1, score / 100 + 0.3));
-      const time = performance.now();
-      const pulse = 0.85 + 0.15 * Math.sin(time / 200);
-      const strength = intensity * pulse;
+      const frame = localFrameRef.current;
+      if (!frame) return;
 
       const lm = frame.landmarks;
-      // Video is mirrored with transform:scaleX(-1) — flip x so skeleton matches
-      const toX = (x: number) => (1 - x) * w;
-      const toY = (y: number) => y * h;
-
-      const hue = (time / 40) % 360;
-      const core = `hsla(${hue}, 100%, 70%, ${0.9 * strength})`;
-      const glow = `hsla(${hue}, 100%, 60%, ${0.85 * strength})`;
+      const intensity = Math.max(
+        0.4,
+        Math.min(1, frame.score / 100 + 0.4),
+      );
 
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+      ctx.lineWidth = 5 * intensity;
+      ctx.shadowBlur = 14 * intensity;
 
-      // outer glow pass
-      ctx.shadowBlur = 28 * strength;
-      ctx.shadowColor = glow;
-      ctx.strokeStyle = glow;
-      ctx.lineWidth = 14 * strength;
-      for (const [a, b] of CONNECTIONS) {
-        const pa = lm[a];
-        const pb = lm[b];
-        if (!pa || !pb) continue;
-        if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3) continue;
-        ctx.beginPath();
-        ctx.moveTo(toX(pa.x), toY(pa.y));
-        ctx.lineTo(toX(pb.x), toY(pb.y));
-        ctx.stroke();
-      }
-
-      // inner bright pass
-      ctx.shadowBlur = 8 * strength;
-      ctx.strokeStyle = core;
-      ctx.lineWidth = 4 * strength;
-      for (const [a, b] of CONNECTIONS) {
-        const pa = lm[a];
-        const pb = lm[b];
-        if (!pa || !pb) continue;
-        if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3) continue;
-        ctx.beginPath();
-        ctx.moveTo(toX(pa.x), toY(pa.y));
-        ctx.lineTo(toX(pb.x), toY(pb.y));
-        ctx.stroke();
-      }
-
-      // joint dots
-      ctx.shadowBlur = 12 * strength;
-      ctx.fillStyle = `hsla(${hue}, 100%, 85%, ${strength})`;
-      for (let i = 11; i <= 32; i++) {
-        const p = lm[i];
-        if (!p) continue;
-        if ((p.visibility ?? 1) < 0.3) continue;
-        ctx.beginPath();
-        ctx.arc(toX(p.x), toY(p.y), 3 * strength, 0, Math.PI * 2);
-        ctx.fill();
+      for (const group of LIMB_GROUPS) {
+        ctx.strokeStyle = group.color;
+        ctx.shadowColor = group.color;
+        for (const [a, b] of group.connections) {
+          const pa = lm[a];
+          const pb = lm[b];
+          if (!pa || !pb) continue;
+          if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3)
+            continue;
+          ctx.beginPath();
+          ctx.moveTo(pa.x * w, pa.y * h);
+          ctx.lineTo(pb.x * w, pb.y * h);
+          ctx.stroke();
+        }
       }
 
       ctx.restore();
@@ -302,6 +294,66 @@ export function FlowPill({ identity }: { identity: string | undefined }) {
       <span className="tabular-nums">{rateLabel}</span>
       <span className="tabular-nums opacity-70">{netLabel}</span>
     </div>
+  );
+}
+
+// Vibrant Just Dance-style palette for per-player tints
+const TINT_PALETTE = [
+  "#ff4df0", // fuchsia
+  "#22d3ee", // cyan
+  "#facc15", // amber
+  "#4ade80", // green
+  "#fb923c", // orange
+  "#a78bfa", // violet
+];
+
+export function tintForIdentity(identity: string | undefined): string {
+  if (!identity) return TINT_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < identity.length; i++) {
+    hash = (hash * 31 + identity.charCodeAt(i)) | 0;
+  }
+  return TINT_PALETTE[Math.abs(hash) % TINT_PALETTE.length];
+}
+
+export function PlayerTint({
+  identity,
+  active,
+}: {
+  identity: string | undefined;
+  active: boolean;
+}) {
+  const color = tintForIdentity(identity);
+  return (
+    <>
+      {/* "color" blend keeps video luminance but swaps hue+saturation */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[4] transition-opacity duration-300"
+        style={{
+          backgroundColor: color,
+          mixBlendMode: "color",
+          opacity: active ? 0.7 : 0.45,
+        }}
+      />
+      {/* Subtle multiply boost to deepen shadows in that hue */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[4] transition-opacity duration-300"
+        style={{
+          backgroundColor: color,
+          mixBlendMode: "soft-light",
+          opacity: active ? 0.35 : 0.2,
+        }}
+      />
+      {/* Colored edge ring that matches the player */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[4] rounded-[inherit] transition-[box-shadow] duration-300"
+        style={{
+          boxShadow: active
+            ? `inset 0 0 80px ${color}80, 0 0 30px ${color}60`
+            : `inset 0 0 40px ${color}40`,
+        }}
+      />
+    </>
   );
 }
 

@@ -74,9 +74,9 @@ export function usePoseScore(
       rafId = requestAnimationFrame(loop);
       if (!landmarker || video.readyState < 2) return;
 
-      // MediaPipe requires strictly increasing timestamps
+      // Cap at ~30fps to keep the main thread responsive
       const ts = performance.now();
-      if (ts <= lastTs) return;
+      if (ts - lastTs < 33) return;
       lastTs = ts;
 
       let result;
@@ -103,7 +103,6 @@ export function usePoseScore(
         const instant = n > 0 ? sum / n : 0;
         ema = ema * (1 - EMA_ALPHA) + instant * EMA_ALPHA;
 
-        // Throttle state updates to ~10 Hz
         const s = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
         frameRef.current = { landmarks: cur, score: s, updatedAt: ts };
         if (ts - lastSetAt > 100) {
