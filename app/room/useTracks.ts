@@ -17,7 +17,7 @@ export function useTracks(): { tracks: TrackSummary[]; ready: boolean } {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/tracks/index.json", { cache: "force-cache" })
+    fetch("/tracks/index.json", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { tracks: [] }))
       .then((data) => {
         if (cancelled) return;
