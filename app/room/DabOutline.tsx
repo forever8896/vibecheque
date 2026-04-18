@@ -81,9 +81,11 @@ function drawDabTarget(
   H: number,
   matched: boolean,
 ) {
-  // Coordinates are authored in the mirrored tile view — the player sees
-  // themselves mirror-flipped, so "left arm up-right on screen" reads to
-  // the player as "raise my own left arm up-to-my-right."
+  // Coordinates are authored in the mirrored tile view — the canvas lives
+  // inside the same scaleX(-1) wrapper as the video, so drawing-x maps 1:1
+  // to landmark-x. The silhouette targets a classic dab: extended arm
+  // reaches an upper corner, bent arm folds across the face toward that
+  // same corner.
   const cx = W / 2;
   const shoulderY = H * 0.4;
   const hipY = H * 0.65;
@@ -97,16 +99,17 @@ function drawDabTarget(
   const lAnkle = { x: cx + halfHipSpan, y: H * 0.92 };
   const rAnkle = { x: cx - halfHipSpan, y: H * 0.92 };
 
-  // Extended arm: person's-left arm out-and-up to their left (drawing-right)
-  const lElbow = { x: cx + W * 0.22, y: shoulderY - H * 0.13 };
-  const lWrist = { x: cx + W * 0.33, y: shoulderY - H * 0.24 };
+  // Extended arm (person's left — drawing-right): shoots diagonally to
+  // the upper-right corner, wrist nearly touching the edge.
+  const lElbow = { x: cx + W * 0.23, y: shoulderY - H * 0.18 };
+  const lWrist = { x: cx + W * 0.42, y: shoulderY - H * 0.33 };
 
-  // Bent arm: person's-right upper arm swung across to the extended side
-  // (elbow well past center) so the forearm can come back UP toward the
-  // face, forming the sharp V that defines a dab. Elbow near shoulder
-  // height, wrist up at forehead level slightly inboard of the elbow.
-  const rElbow = { x: cx + W * 0.14, y: shoulderY - H * 0.005 };
-  const rWrist = { x: cx + W * 0.08, y: shoulderY - H * 0.2 };
+  // Bent arm (person's right — drawing-left): upper arm swings up-and-out
+  // so the elbow sits out past the far shoulder at forehead height; the
+  // forearm folds back across the face toward the extended-arm corner.
+  // This is the defining V of a dab.
+  const rElbow = { x: cx - W * 0.18, y: shoulderY - H * 0.14 };
+  const rWrist = { x: cx - W * 0.02, y: shoulderY - H * 0.08 };
 
   const headY = shoulderY - H * 0.1;
   const headR = H * 0.055;
