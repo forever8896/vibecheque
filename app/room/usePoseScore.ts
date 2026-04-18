@@ -10,12 +10,18 @@ import { beatState } from "./beats";
 
 export type PoseFrame = {
   landmarks: NormalizedLandmark[];
+  // Final score (0-100) — what peers see
   score: number;
   updatedAt: number;
-  // Activity-only component (before rhythm weighting), 0-100
-  activity: number;
-  // Rhythm alignment 0-1 over a rolling window
-  rhythm: number;
+  // Debug-oriented breakdown
+  activeJoints: number; // count of joints with velocity > noise floor this frame
+  totalJoints: number; // total joints we sampled
+  rawActivity: number; // EMA of active joint velocities, 0..100-ish
+  beatCloseness: number; // 0..1, 1 if exactly on beat, 0 if far from beat
+  inBeatWindow: boolean; // whether this frame is within the beat window
+  musicOn: boolean; // whether we've detected at least one beat
+  bassIntensity: number; // live bass energy 0..1
+  bpm: number; // smoothed BPM
 };
 
 const WASM_BASE =
@@ -25,8 +31,23 @@ const MODEL_URL =
 
 // Body joints only (skip face 0-10 which are noisy and don't represent dance)
 const JOINTS = Array.from({ length: 22 }, (_, i) => i + 11);
-const EMA_ALPHA = 0.15;
-const SCALE = 2500;
+
+// Noise floor — per-joint velocity below this is treated as camera jitter,
+// not real motion. Normalized coords; ~0.004 ≈ 2.5 pixels on a 640px frame.
+const PER_JOINT_NOISE_FLOOR = 0.0045;
+
+// How much to scale raw per-frame velocity into a 0-100 activity number
+const ACTIVITY_SCALE = 1800;
+
+// Time window around a beat where motion counts. Wider = more forgiving.
+const BEAT_WINDOW_MS = 220;
+
+// When music is playing, off-beat motion scores this fraction of on-beat
+// (set to 0 for strict mode, 0.15 for softer gating)
+const OFF_BEAT_FLOOR = 0.1;
+
+// EMA smoothing factor for activity (0..1). Higher = twitchier.
+const ACTIVITY_EMA = 0.25;
 
 export function usePoseScore(
   track: MediaStreamTrack | null | undefined,
@@ -41,17 +62,9 @@ export function usePoseScore(
     let rafId = 0;
     let landmarker: PoseLandmarker | null = null;
     let prev: NormalizedLandmark[] | null = null;
-    let ema = 0;
+    let emaActivity = 0;
     let lastSetAt = 0;
     let lastTs = 0;
-
-    // Rhythm tracking: increment on each new beat from beats.ts
-    let lastBeatSeen = 0;
-    let beatsHit = 0; // decaying "weighted count of beats caught"
-    let beatsTotal = 0; // decaying total beats seen
-    const RHYTHM_HALF_LIFE_MS = 4500; // ~4.5s memory
-    const CATCH_THRESHOLD = 30; // activity score above which a beat counts as hit
-    let rhythm = 1; // latest rhythm alignment 0-1
 
     const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
@@ -60,8 +73,6 @@ export function usePoseScore(
     video.autoplay = true;
 
     async function init() {
-      // Fire-and-forget play. AbortError is expected under React strict-mode
-      // double-invocation when cleanup nulls srcObject before play resolves.
       video.play().catch((err: Error) => {
         if (err.name !== "AbortError") {
           console.warn("[pose-score] video.play failed", err);
@@ -101,70 +112,73 @@ export function usePoseScore(
       if (!result.landmarks?.length) return;
 
       const cur = result.landmarks[0];
+
+      // Per-joint velocity with a noise floor — only joints that actually
+      // moved counted. Static body = 0 active joints = 0 activity.
+      let activeJoints = 0;
+      let totalActiveVel = 0;
       if (prev) {
-        let sum = 0;
-        let n = 0;
         for (const i of JOINTS) {
           const a = prev[i];
           const b = cur[i];
           if (!a || !b) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
-          sum += Math.sqrt(dx * dx + dy * dy);
-          n++;
+          const v = Math.sqrt(dx * dx + dy * dy);
+          if (v > PER_JOINT_NOISE_FLOOR) {
+            activeJoints++;
+            totalActiveVel += v;
+          }
         }
-        const instant = n > 0 ? sum / n : 0;
-        ema = ema * (1 - EMA_ALPHA) + instant * EMA_ALPHA;
+      }
 
-        const activity = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
+      const avgActiveVel = activeJoints > 0 ? totalActiveVel / activeJoints : 0;
+      // Boost by fraction of body active so full-body movement beats single-limb flails
+      const jointFraction = activeJoints / JOINTS.length;
+      const instant = avgActiveVel * (0.4 + 0.6 * jointFraction);
+      emaActivity =
+        emaActivity * (1 - ACTIVITY_EMA) + instant * ACTIVITY_EMA;
+      const rawActivity = Math.max(0, Math.min(100, emaActivity * ACTIVITY_SCALE));
 
-        // --- rhythm alignment ------------------------------------------------
-        // Exponential decay of both "caught" and "total" counters so recent
-        // beats matter most.
-        const dt = ts - (frameRef.current?.updatedAt ?? ts);
-        if (dt > 0) {
-          const decay = Math.pow(0.5, dt / RHYTHM_HALF_LIFE_MS);
-          beatsHit *= decay;
-          beatsTotal *= decay;
+      // Beat-window gate
+      const musicOn = beatState.isActive;
+      const lastBeat = beatState.lastFlashAt;
+      let beatCloseness = 0;
+      let inBeatWindow = false;
+      if (lastBeat > 0) {
+        const timeSince = ts - lastBeat;
+        if (timeSince <= BEAT_WINDOW_MS) {
+          inBeatWindow = true;
+          beatCloseness = 1 - timeSince / BEAT_WINDOW_MS;
         }
-        // If a new beat was registered since we last looked, evaluate it
-        const beatTs = beatState.lastFlashAt;
-        if (beatTs > lastBeatSeen) {
-          lastBeatSeen = beatTs;
-          beatsTotal += 1;
-          if (activity >= CATCH_THRESHOLD) beatsHit += 1;
-        }
-        if (beatState.isActive && beatsTotal > 0.05) {
-          rhythm = Math.max(0, Math.min(1, beatsHit / beatsTotal));
-        } else {
-          // No beats yet → no rhythm penalty
-          rhythm = 1;
-        }
+      }
 
-        // Weight: 40% activity floor + 60% weighted by rhythm alignment
-        const s = Math.max(
-          0,
-          Math.min(100, Math.round(activity * (0.4 + 0.6 * rhythm))),
-        );
-        frameRef.current = {
-          landmarks: cur,
-          score: s,
-          updatedAt: ts,
-          activity,
-          rhythm,
-        };
-        if (ts - lastSetAt > 100) {
-          lastSetAt = ts;
-          setScore(s);
-        }
+      // Final score: strict gate when music is playing, pure activity otherwise
+      let finalRaw: number;
+      if (musicOn) {
+        finalRaw = rawActivity * (OFF_BEAT_FLOOR + (1 - OFF_BEAT_FLOOR) * beatCloseness);
       } else {
-        frameRef.current = {
-          landmarks: cur,
-          score: 0,
-          updatedAt: ts,
-          activity: 0,
-          rhythm: 1,
-        };
+        finalRaw = rawActivity;
+      }
+      const s = Math.max(0, Math.min(100, Math.round(finalRaw)));
+
+      frameRef.current = {
+        landmarks: cur,
+        score: s,
+        updatedAt: ts,
+        activeJoints,
+        totalJoints: JOINTS.length,
+        rawActivity,
+        beatCloseness,
+        inBeatWindow,
+        musicOn,
+        bassIntensity: beatState.intensity,
+        bpm: beatState.bpm,
+      };
+
+      if (ts - lastSetAt > 100) {
+        lastSetAt = ts;
+        setScore(s);
       }
       prev = cur;
     }

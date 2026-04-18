@@ -26,6 +26,8 @@ import {
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
+import { ScoreDebug } from "./ScoreDebug";
+import { ScreenBob } from "./ScreenBob";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -323,23 +325,30 @@ function Stage() {
 function RoomInner() {
   const { match, phase, secondsElapsed, roomName, meetMode } = useSession();
   return (
-    <div className="fixed inset-0 flex flex-col bg-black">
-      <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
-        <span>
-          VibeCheque · {meetMode ? "chill room" : (roomName ?? "lobby")}
-        </span>
-        <Link href="/" className="text-zinc-400 hover:text-white">
-          leave
-        </Link>
-      </header>
-      <div className="relative flex-1 min-h-0 overflow-hidden px-2 pb-2">
-        <Stage />
-        <MatchHUD />
+    <ScreenBob>
+      <div className="absolute inset-0 flex flex-col bg-black">
+        <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
+          <span>
+            VibeCheque · {meetMode ? "chill room" : (roomName ?? "lobby")}
+          </span>
+          <Link href="/" className="text-zinc-400 hover:text-white">
+            leave
+          </Link>
+        </header>
+        <div className="relative flex-1 min-h-0 overflow-hidden px-2 pb-2">
+          <Stage />
+          <MatchHUD />
+        </div>
+        <RoomAudioRenderer />
+        <SyncedMusic
+          match={match}
+          phase={phase}
+          secondsElapsed={secondsElapsed}
+        />
+        {!meetMode && <BeatPulse />}
+        {!meetMode && <ScoreDebug />}
       </div>
-      <RoomAudioRenderer />
-      <SyncedMusic match={match} phase={phase} secondsElapsed={secondsElapsed} />
-      {!meetMode && <BeatPulse />}
-    </div>
+    </ScreenBob>
   );
 }
 
