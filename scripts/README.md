@@ -1,5 +1,38 @@
 # VibeCheque scripts
 
+## `ingest-track.sh`
+
+URL → playable VibeCheque track. Downloads the video, extracts audio, runs
+MediaPipe Pose, pulls the cover art, and writes a bundle at
+`public/tracks/<id>/`.
+
+```bash
+scripts/ingest-track.sh "https://www.tiktok.com/@someone/video/12345"
+scripts/ingest-track.sh "https://www.youtube.com/watch?v=xyz"
+```
+
+Works with anything yt-dlp supports (YouTube, TikTok, Instagram Reels,
+Facebook, Reddit…). For TikTok specifically you need the impersonation
+backend — install it once per machine:
+
+```bash
+pip install --user --break-system-packages "yt-dlp[default,curl-cffi]"
+```
+
+Without `curl-cffi` TikTok's anti-bot returns `Requested format is not
+available`.
+
+Output after a successful run:
+
+- `public/tracks/<id>/audio.mp3`
+- `public/tracks/<id>/choreo.json`  (pose landmarks per frame)
+- `public/tracks/<id>/meta.json`    (title, uploader, duration, source)
+- `public/tracks/<id>/cover.jpg`
+- `public/tracks/index.json`        (updated)
+
+Commit + push the new folder and `index.json` — the track shows up in the
+lobby selector after Vercel rebuilds.
+
 ## `extract_choreo.py`
 
 Run MediaPipe Pose over a dance video file and emit a JSON of time-stamped

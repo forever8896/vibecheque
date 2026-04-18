@@ -66,7 +66,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "→ [1/4] downloading $URL…"
 yt-dlp "$URL" \
-  -f "bv*[height<=720]+ba/b[height<=720]/best[height<=720]" \
+  -f "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b/best" \
   --recode-video mp4 \
   --write-info-json \
   --write-thumbnail \
