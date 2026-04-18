@@ -26,7 +26,7 @@ import {
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
-import { PoseGhost } from "./PoseGhost";
+import { PoseGhostFigure, PoseGhostLabel } from "./PoseGhost";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -127,10 +127,26 @@ function useLocalCameraTracking(
         const frame = localFrameRef?.current;
         if (frame) {
           const lm = frame.landmarks;
-          const pts = [lm[11], lm[12], lm[23], lm[24]].filter(Boolean);
-          if (pts.length === 4) {
-            targetCx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-            targetCy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+          const visible = [lm[11], lm[12], lm[23], lm[24]].filter(
+            (p) => p && (p.visibility ?? 1) > 0.45,
+          );
+          // Only pan when we have enough confident torso points
+          if (visible.length >= 3) {
+            targetCx =
+              visible.reduce((s, p) => s + p.x, 0) / visible.length;
+            targetCy =
+              visible.reduce((s, p) => s + p.y, 0) / visible.length;
+            targetZoom = BASE_ZOOM;
+          } else if (
+            lm[11] &&
+            lm[12] &&
+            (lm[11].visibility ?? 1) > 0.45 &&
+            (lm[12].visibility ?? 1) > 0.45
+          ) {
+            // Shoulders only — bias down a bit so the camera doesn't latch
+            // onto the face when hips are out of frame
+            targetCx = (lm[11].x + lm[12].x) / 2;
+            targetCy = (lm[11].y + lm[12].y) / 2 + 0.08;
             targetZoom = BASE_ZOOM;
           }
         }
@@ -210,6 +226,7 @@ function DanceTile() {
           >
             <AttachedVideo publication={camPub} />
             {isLocal && showGameOverlays && <BodyAura />}
+            {isLocal && active && showGameOverlays && <PoseGhostFigure />}
           </div>
         </div>
       ) : (
@@ -225,7 +242,7 @@ function DanceTile() {
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
-          {isLocal && active && <PoseGhost />}
+          {isLocal && active && <PoseGhostLabel />}
           {isLocal && <ScoreCallouts />}
           <ScoreOverlay />
           <FlowPill identity={identity} />

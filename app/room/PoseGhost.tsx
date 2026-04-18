@@ -4,14 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { BONES } from "./poseLibrary";
 import { useSession } from "./SessionProvider";
 
-// Stick-figure silhouette of the active target pose, drawn in the center
-// of the tile. Canvas is CSS-mirrored so it lines up with the user's
-// mirrored self-view. The label sits above in plain DOM so it reads
-// correctly.
-export function PoseGhost() {
+// ------- Figure ----------
+// Canvas stick-figure drawn at the player's actual shoulders/hips. Meant
+// to live *inside* the tile's tracking wrapper so it pans/zooms with the
+// video and the CSS mirror. No self-mirror on this canvas.
+export function PoseGhostFigure() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { localFrameRef } = useSession();
-  const [label, setLabel] = useState<string>("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -22,8 +21,7 @@ export function PoseGhost() {
     let rafId = 0;
     let cancelled = false;
     let lastTargetIdx = -1;
-    let fadeIn = 0; // 0..1 over a few frames after pose switch
-    let lastLabel = "";
+    let fadeIn = 0;
     let lastTs = 0;
 
     function resize() {
@@ -44,7 +42,7 @@ export function PoseGhost() {
       if (!canvas || !ctx) return;
 
       const now = performance.now();
-      if (now - lastTs < 33) return; // cap at ~30fps
+      if (now - lastTs < 33) return;
       lastTs = now;
 
       const rect = canvas.getBoundingClientRect();
@@ -62,21 +60,44 @@ export function PoseGhost() {
       }
       fadeIn = Math.min(1, fadeIn + 0.06);
 
-      if (target.label !== lastLabel) {
-        lastLabel = target.label;
-        setLabel(target.label);
+      // Anchor on the player's actual torso landmarks
+      const lm = f.landmarks;
+      const ls = lm[11];
+      const rs = lm[12];
+      const lh = lm[23];
+      const rh = lm[24];
+      if (!ls || !rs || !lh || !rh) return;
+      if (
+        (ls.visibility ?? 1) < 0.3 ||
+        (rs.visibility ?? 1) < 0.3 ||
+        (lh.visibility ?? 1) < 0.3 ||
+        (rh.visibility ?? 1) < 0.3
+      ) {
+        return;
       }
 
-      // Fixed body anchors in tile coords
-      const shoulderL = { x: w * 0.5 + w * 0.055, y: h * 0.3 };
-      const shoulderR = { x: w * 0.5 - w * 0.055, y: h * 0.3 };
-      const hipL = { x: w * 0.5 + w * 0.045, y: h * 0.55 };
-      const hipR = { x: w * 0.5 - w * 0.045, y: h * 0.55 };
+      const shoulderL = { x: ls.x * w, y: ls.y * h };
+      const shoulderR = { x: rs.x * w, y: rs.y * h };
+      const hipL = { x: lh.x * w, y: lh.y * h };
+      const hipR = { x: rh.x * w, y: rh.y * h };
 
-      const upperArmLen = h * 0.14;
-      const forearmLen = h * 0.14;
-      const thighLen = h * 0.17;
-      const shinLen = h * 0.17;
+      const shoulderMid = {
+        x: (shoulderL.x + shoulderR.x) / 2,
+        y: (shoulderL.y + shoulderR.y) / 2,
+      };
+      const hipMid = {
+        x: (hipL.x + hipR.x) / 2,
+        y: (hipL.y + hipR.y) / 2,
+      };
+      const torsoHeight = Math.max(
+        40,
+        Math.hypot(shoulderMid.x - hipMid.x, shoulderMid.y - hipMid.y),
+      );
+
+      const upperArmLen = torsoHeight * 0.55;
+      const forearmLen = torsoHeight * 0.55;
+      const thighLen = torsoHeight * 0.75;
+      const shinLen = torsoHeight * 0.75;
 
       const joints = new Map<number, { x: number; y: number }>();
       joints.set(11, shoulderL);
@@ -93,29 +114,28 @@ export function PoseGhost() {
         if (from === 25 && to === 27) return shinLen;
         if (from === 24 && to === 26) return thighLen;
         if (from === 26 && to === 28) return shinLen;
-        return h * 0.1;
+        return torsoHeight * 0.5;
       };
 
-      // Score-tinted color: white -> neon green as similarity climbs
+      // Color blends white → neon green as similarity climbs
       const sim = f.similarity;
       const mix = Math.max(0, Math.min(1, sim));
-      // blend white (255,255,255) -> #4ade80 (74, 222, 128)
-      const r = Math.round(255 * (1 - mix) + 74 * mix);
-      const g = Math.round(255 * (1 - mix) + 222 * mix);
-      const b = Math.round(255 * (1 - mix) + 128 * mix);
-      const alpha = (0.55 + mix * 0.35) * fadeIn;
-      const strokeColor = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-      const glowColor = `rgba(${r}, ${g}, ${b}, ${alpha * 0.9})`;
+      const rC = Math.round(255 * (1 - mix) + 74 * mix);
+      const gC = Math.round(255 * (1 - mix) + 222 * mix);
+      const bC = Math.round(255 * (1 - mix) + 128 * mix);
+      const alpha = (0.5 + mix * 0.4) * fadeIn;
+      const strokeColor = `rgba(${rC}, ${gC}, ${bC}, ${alpha})`;
+      const glowColor = `rgba(${rC}, ${gC}, ${bC}, ${alpha * 0.9})`;
 
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.strokeStyle = strokeColor;
       ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 18 * fadeIn;
-      ctx.lineWidth = 10;
+      ctx.shadowBlur = 14 * fadeIn;
+      ctx.lineWidth = Math.max(6, torsoHeight * 0.08);
 
-      // Torso frame first (so limbs sit on top visually)
+      // Torso frame
       ctx.beginPath();
       ctx.moveTo(shoulderL.x, shoulderL.y);
       ctx.lineTo(shoulderR.x, shoulderR.y);
@@ -127,7 +147,7 @@ export function PoseGhost() {
       ctx.lineTo(hipR.x, hipR.y);
       ctx.stroke();
 
-      // Limbs
+      // Limbs driven by target pose vectors
       for (let i = 0; i < BONES.length; i++) {
         const bone = BONES[i];
         const vec = target.vectors[i];
@@ -146,11 +166,9 @@ export function PoseGhost() {
       }
 
       // Head circle
-      const headCx = (shoulderL.x + shoulderR.x) / 2;
-      const headCy = (shoulderL.y + shoulderR.y) / 2 - h * 0.07;
-      const headR = h * 0.06;
+      const headR = torsoHeight * 0.22;
       ctx.beginPath();
-      ctx.arc(headCx, headCy, headR, 0, Math.PI * 2);
+      ctx.arc(shoulderMid.x, shoulderMid.y - torsoHeight * 0.4, headR, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.restore();
@@ -165,16 +183,50 @@ export function PoseGhost() {
   }, [localFrameRef]);
 
   return (
-    <>
-      <canvas
-        ref={canvasRef}
-        className="pointer-events-none absolute inset-0 z-[4] h-full w-full [transform:scaleX(-1)]"
-      />
-      <div
-        className="pointer-events-none absolute left-1/2 top-[12%] z-[5] -translate-x-1/2 rounded-full border border-white/20 bg-black/60 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.3em] text-white backdrop-blur"
-      >
-        {label || "—"}
-      </div>
-    </>
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-[4] h-full w-full"
+    />
+  );
+}
+
+// ------- Label ----------
+// Lives at the top of the tile, OUTSIDE the tracking wrapper so it doesn't
+// mirror-flip or pan-translate away.
+export function PoseGhostLabel() {
+  const { localFrameRef } = useSession();
+  const [label, setLabel] = useState("");
+
+  useEffect(() => {
+    let rafId = 0;
+    let cancelled = false;
+    let lastLabel = "";
+    let lastTs = 0;
+
+    function loop() {
+      if (cancelled) return;
+      rafId = requestAnimationFrame(loop);
+      const now = performance.now();
+      if (now - lastTs < 200) return; // label only needs to check ~5 Hz
+      lastTs = now;
+      const f = localFrameRef.current;
+      const cur = f?.target?.label ?? "";
+      if (cur !== lastLabel) {
+        lastLabel = cur;
+        setLabel(cur);
+      }
+    }
+    loop();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+  }, [localFrameRef]);
+
+  if (!label) return null;
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-[10%] z-[20] -translate-x-1/2 rounded-full border border-white/20 bg-black/70 px-5 py-1.5 font-mono text-xs uppercase tracking-[0.3em] text-white backdrop-blur">
+      {label}
+    </div>
   );
 }
