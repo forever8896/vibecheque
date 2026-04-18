@@ -6,6 +6,7 @@ import {
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 import { useEffect, useRef, useState } from "react";
+import { makeLandmarkMapper } from "@/app/room/landmarkMap";
 
 type Status =
   | "loading"
@@ -14,6 +15,7 @@ type Status =
   | "center-yourself"
   | "step-closer"
   | "step-back"
+  | "tpose-arms"
   | "hold-still"
   | "ready"
   | "error";
@@ -23,14 +25,56 @@ const WASM_BASE =
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
-// Heuristics — all in normalized camera coords
-const MIN_TORSO_HEIGHT = 0.16; // too close if smaller
-const MAX_TORSO_HEIGHT = 0.5; // too far if bigger
-const CENTER_TOLERANCE = 0.18; // shoulders midpoint x within 0.5 ± 0.18
-const HOLD_FRAMES = 30; // ~1s at 30fps
+// All thresholds in normalized source-video coords
+const MIN_TORSO_HEIGHT = 0.14;
+const MAX_TORSO_HEIGHT = 0.55;
+const CENTER_TOLERANCE = 0.22;
+const ARM_H_MIN = 0.12; // arm reach horizontally (shoulder→wrist)
+const ARM_V_MAX = 0.1; // arm vertical drift from shoulder height
+const HOLD_FRAMES = 25;
+
+function assessPose(lm: NormalizedLandmark[]): {
+  shouldersVisible: boolean;
+  hipsVisible: boolean;
+  armsOut: boolean;
+  torsoHeight: number;
+  midX: number;
+} {
+  const ls = lm[11];
+  const rs = lm[12];
+  const lh = lm[23];
+  const rh = lm[24];
+  const lw = lm[15];
+  const rw = lm[16];
+  const shouldersVisible =
+    (ls?.visibility ?? 0) > 0.55 && (rs?.visibility ?? 0) > 0.55;
+  const hipsVisible =
+    (lh?.visibility ?? 0) > 0.45 && (rh?.visibility ?? 0) > 0.45;
+  const midX = ls && rs ? (ls.x + rs.x) / 2 : 0.5;
+  const torsoHeight =
+    ls && rs && lh && rh
+      ? Math.abs(((lh.y + rh.y) / 2) - ((ls.y + rs.y) / 2))
+      : 0;
+  // person's left arm = landmarks 11 (shoulder) to 15 (wrist); in camera
+  // coords the wrist extends further +x than the shoulder
+  const leftArmDx = ls && lw ? lw.x - ls.x : 0;
+  const leftArmDy = ls && lw ? Math.abs(lw.y - ls.y) : 1;
+  const rightArmDx = rs && rw ? rs.x - rw.x : 0;
+  const rightArmDy = rs && rw ? Math.abs(rw.y - rs.y) : 1;
+  const armsVisible =
+    (lw?.visibility ?? 0) > 0.45 && (rw?.visibility ?? 0) > 0.45;
+  const armsOut =
+    armsVisible &&
+    leftArmDx > ARM_H_MIN &&
+    rightArmDx > ARM_H_MIN &&
+    leftArmDy < ARM_V_MAX &&
+    rightArmDy < ARM_V_MAX;
+  return { shouldersVisible, hipsVisible, armsOut, torsoHeight, midX };
+}
 
 export function CalibrationGate({ onReady }: { onReady: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const firedRef = useRef(false);
   const [status, setStatus] = useState<Status>("loading");
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -44,6 +88,9 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
     let lastTs = 0;
     let holdCount = 0;
     const startedAt = performance.now();
+    let lastLandmarks: NormalizedLandmark[] | null = null;
+    let lastVideoSize = { w: 0, h: 0 };
+    let armsMatched = false;
 
     async function init() {
       try {
@@ -94,70 +141,109 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
         return;
       }
       const lm = result.landmarks?.[0] as NormalizedLandmark[] | undefined;
+      lastVideoSize = { w: video.videoWidth, h: video.videoHeight };
       if (!lm) {
+        lastLandmarks = null;
+        armsMatched = false;
         setStatus("no-body");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
         return;
       }
+      lastLandmarks = lm;
 
-      const ls = lm[11];
-      const rs = lm[12];
-      const lh = lm[23];
-      const rh = lm[24];
-      const shouldersVisible =
-        (ls?.visibility ?? 0) > 0.55 && (rs?.visibility ?? 0) > 0.55;
-      const hipsVisible =
-        (lh?.visibility ?? 0) > 0.45 && (rh?.visibility ?? 0) > 0.45;
-
-      if (!shouldersVisible) {
+      const a = assessPose(lm);
+      if (!a.shouldersVisible) {
+        armsMatched = false;
         setStatus("no-body");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
         return;
       }
-
-      const midX = (ls!.x + rs!.x) / 2;
-      if (Math.abs(midX - 0.5) > CENTER_TOLERANCE) {
+      if (Math.abs(a.midX - 0.5) > CENTER_TOLERANCE) {
+        armsMatched = false;
         setStatus("center-yourself");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
         return;
       }
-
-      if (!hipsVisible) {
-        // Likely too close — hips usually cut off when user is right next to camera
+      if (!a.hipsVisible) {
+        armsMatched = false;
         setStatus("step-back");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
         return;
       }
-
-      const midShoulderY = (ls!.y + rs!.y) / 2;
-      const midHipY = (lh!.y + rh!.y) / 2;
-      const torsoH = Math.abs(midHipY - midShoulderY);
-
-      if (torsoH < MIN_TORSO_HEIGHT) {
+      if (a.torsoHeight < MIN_TORSO_HEIGHT) {
+        armsMatched = false;
         setStatus("step-closer");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
         return;
       }
-      if (torsoH > MAX_TORSO_HEIGHT) {
+      if (a.torsoHeight > MAX_TORSO_HEIGHT) {
+        armsMatched = false;
         setStatus("step-back");
         holdCount = 0;
         setHoldProgress(0);
+        redraw();
+        return;
+      }
+      if (!a.armsOut) {
+        armsMatched = false;
+        setStatus("tpose-arms");
+        holdCount = 0;
+        setHoldProgress(0);
+        redraw();
         return;
       }
 
+      // Full match — distance, centering, and arms all good
+      armsMatched = true;
       holdCount++;
       setHoldProgress(Math.min(1, holdCount / HOLD_FRAMES));
       setStatus(holdCount >= HOLD_FRAMES ? "ready" : "hold-still");
+      redraw();
 
       if (holdCount >= HOLD_FRAMES && !firedRef.current) {
         firedRef.current = true;
         setStatus("ready");
         onReady();
+      }
+    }
+
+    function redraw() {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+      if (canvas.width !== W * dpr) {
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      ctx.clearRect(0, 0, W, H);
+
+      drawTposeTarget(ctx, W, H, armsMatched);
+
+      if (lastLandmarks && lastVideoSize.w > 0 && lastVideoSize.h > 0) {
+        drawUserSkeleton(
+          ctx,
+          lastLandmarks,
+          W,
+          H,
+          lastVideoSize.w,
+          lastVideoSize.h,
+        );
       }
     }
 
@@ -178,7 +264,8 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
     "center-yourself": "Center yourself",
     "step-closer": "Step closer",
     "step-back": "Step back",
-    "hold-still": "Hold still…",
+    "tpose-arms": "Make a T-pose",
+    "hold-still": "Hold it…",
     ready: "Calibrated",
     error: "Camera blocked",
   };
@@ -196,14 +283,14 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_15%,rgba(0,0,0,0.85)_85%)]" />
       </div>
 
-      {/* Silhouette outline hint: centered human-proportion rectangle */}
-      <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center">
-        <div className="h-[72%] w-[32%] max-w-xs rounded-[160px] border-2 border-dashed border-white/25" />
-      </div>
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none fixed inset-0 z-10 h-full w-full [transform:scaleX(-1)]"
+      />
 
       <div className="pointer-events-none fixed inset-x-0 top-10 z-30 flex flex-col items-center gap-3 px-4 text-center">
         <p className="font-mono text-[10px] uppercase tracking-[0.4em] text-fuchsia-300/80">
-          step 1 · calibration
+          step 2 · calibration
         </p>
         <h2
           className={`font-mono font-semibold uppercase leading-tight transition-all duration-500 ${
@@ -214,9 +301,11 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
         >
           {headline[status]}
         </h2>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">
+          match the dashed T-pose so we can size you up
+        </p>
       </div>
 
-      {/* Hold progress ring at bottom */}
       <div className="pointer-events-none fixed inset-x-0 bottom-10 z-30 flex justify-center">
         {status === "hold-still" || status === "ready" ? (
           <div className="relative h-2 w-48 overflow-hidden rounded-full border border-white/15 bg-black/60">
@@ -244,4 +333,136 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
       </div>
     </>
   );
+}
+
+// -- drawing helpers ---------------------------------------------------
+
+function drawTposeTarget(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  matched: boolean,
+) {
+  // Fixed T-pose silhouette centered in the frame. Arms extend to ~20%/80%
+  // of width so the player needs to be roughly at the calibrated distance
+  // for their wrists to reach the target marks.
+  const cx = W / 2;
+  const shoulderY = H * 0.33;
+  const hipY = H * 0.6;
+  const wristL = { x: W * 0.82, y: shoulderY }; // visually left (mirrored)
+  const wristR = { x: W * 0.18, y: shoulderY };
+  const shoulderL = { x: cx + W * 0.04, y: shoulderY };
+  const shoulderR = { x: cx - W * 0.04, y: shoulderY };
+  const hipL = { x: cx + W * 0.035, y: hipY };
+  const hipR = { x: cx - W * 0.035, y: hipY };
+  const ankleL = { x: cx + W * 0.04, y: H * 0.9 };
+  const ankleR = { x: cx - W * 0.04, y: H * 0.9 };
+  const headY = shoulderY - H * 0.08;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = matched
+    ? "rgba(74, 222, 128, 0.95)"
+    : "rgba(255, 255, 255, 0.6)";
+  ctx.shadowColor = matched
+    ? "rgba(74, 222, 128, 0.8)"
+    : "rgba(255, 255, 255, 0.3)";
+  ctx.shadowBlur = matched ? 16 : 10;
+  if (!matched) ctx.setLineDash([10, 8]);
+
+  // Arms (T)
+  ctx.beginPath();
+  ctx.moveTo(wristR.x, wristR.y);
+  ctx.lineTo(wristL.x, wristL.y);
+  ctx.stroke();
+
+  // Torso
+  ctx.beginPath();
+  ctx.moveTo(shoulderL.x, shoulderL.y);
+  ctx.lineTo(hipL.x, hipL.y);
+  ctx.moveTo(shoulderR.x, shoulderR.y);
+  ctx.lineTo(hipR.x, hipR.y);
+  ctx.stroke();
+
+  // Hip line + shoulder line
+  ctx.beginPath();
+  ctx.moveTo(shoulderL.x, shoulderL.y);
+  ctx.lineTo(shoulderR.x, shoulderR.y);
+  ctx.moveTo(hipL.x, hipL.y);
+  ctx.lineTo(hipR.x, hipR.y);
+  ctx.stroke();
+
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo(hipL.x, hipL.y);
+  ctx.lineTo(ankleL.x, ankleL.y);
+  ctx.moveTo(hipR.x, hipR.y);
+  ctx.lineTo(ankleR.x, ankleR.y);
+  ctx.stroke();
+
+  // Head
+  ctx.beginPath();
+  ctx.arc(cx, headY, H * 0.05, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawUserSkeleton(
+  ctx: CanvasRenderingContext2D,
+  lm: NormalizedLandmark[],
+  W: number,
+  H: number,
+  videoW: number,
+  videoH: number,
+) {
+  const toTile = makeLandmarkMapper(videoW, videoH, W, H);
+  const CONNS: [number, number][] = [
+    [11, 12],
+    [11, 23],
+    [12, 24],
+    [23, 24],
+    [11, 13],
+    [13, 15],
+    [12, 14],
+    [14, 16],
+    [23, 25],
+    [25, 27],
+    [24, 26],
+    [26, 28],
+    [0, 11],
+    [0, 12],
+  ];
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "rgba(34, 211, 238, 0.9)";
+  ctx.shadowColor = "rgba(34, 211, 238, 0.8)";
+  ctx.shadowBlur = 12;
+  for (const [a, b] of CONNS) {
+    const pa = lm[a];
+    const pb = lm[b];
+    if (!pa || !pb) continue;
+    if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3) continue;
+    const paT = toTile(pa.x, pa.y);
+    const pbT = toTile(pb.x, pb.y);
+    ctx.beginPath();
+    ctx.moveTo(paT.x, paT.y);
+    ctx.lineTo(pbT.x, pbT.y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(34, 211, 238, 0.9)";
+  ctx.shadowBlur = 8;
+  for (let i = 11; i <= 32; i++) {
+    const p = lm[i];
+    if (!p || (p.visibility ?? 1) < 0.3) continue;
+    const pt = toTile(p.x, p.y);
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
