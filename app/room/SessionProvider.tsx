@@ -23,6 +23,7 @@ import {
 import type { Lobby, Match, MatchPhase } from "./useLobby";
 import { usePoseScore, type PoseFrame } from "./usePoseScore";
 import { onChainReady } from "@/app/chain/config";
+import { useMatchLog, type MatchLog } from "./useMatchLog";
 
 type Session = {
   scores: Map<string, number>;
@@ -47,6 +48,7 @@ type Session = {
   meetMode: boolean;
   enterMeet: () => void;
   exitMeet: () => void;
+  matchLog: MatchLog | null;
 };
 
 const noopRef = { current: null } as React.RefObject<PoseFrame | null>;
@@ -76,6 +78,7 @@ const SessionContext = createContext<Session>({
   meetMode: false,
   enterMeet: () => {},
   exitMeet: () => {},
+  matchLog: null,
 });
 
 export function useSession() {
@@ -201,6 +204,15 @@ export function SessionProvider({
   }, [localParticipant]);
 
   const { score: myScore, frameRef: localFrameRef } = usePoseScore(localTrack);
+
+  const matchLog = useMatchLog({
+    phase: lobby.phase,
+    matchId: lobby.match?.id ?? null,
+    matchStartAt: lobby.match?.startAt ?? null,
+    matchDurationMs: lobby.match?.duration ?? null,
+    roomName: lobby.roomName,
+    frameRef: localFrameRef,
+  });
 
   // Reflect my own score in the shared map
   useEffect(() => {
@@ -373,6 +385,7 @@ export function SessionProvider({
       meetMode,
       enterMeet,
       exitMeet,
+      matchLog,
     }),
     [
       scores,
@@ -396,6 +409,7 @@ export function SessionProvider({
       meetMode,
       enterMeet,
       exitMeet,
+      matchLog,
     ],
   );
 

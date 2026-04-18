@@ -4,6 +4,7 @@ import { useParticipants } from "@livekit/components-react";
 import { useEffect, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
+import { matchLogToText } from "./useMatchLog";
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -32,6 +33,7 @@ export function MatchHUD() {
     meetMode,
     enterMeet,
     exitMeet,
+    matchLog,
   } = useSession();
   const participants = useParticipants();
 
@@ -215,6 +217,80 @@ export function MatchHUD() {
             Meet one another →
           </button>
         </div>
+        {matchLog && <DebugLogDump />}
+      </div>
+    </div>
+  );
+}
+
+function DebugLogDump() {
+  const { matchLog } = useSession();
+  const [copied, setCopied] = useState(false);
+  if (!matchLog) return null;
+  const s = matchLog.samples;
+  const avgActivity =
+    s.length > 0 ? s.reduce((a, x) => a + x.activity, 0) / s.length : 0;
+  const peakActivity = s.length > 0 ? Math.max(...s.map((x) => x.activity)) : 0;
+  const beatPct =
+    s.length > 0 ? (s.filter((x) => x.beatIn).length / s.length) * 100 : 0;
+  const musicPct =
+    s.length > 0 ? (s.filter((x) => x.musicOn).length / s.length) * 100 : 0;
+  const finalBpm = s[s.length - 1]?.bpm ?? 0;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(matchLogToText(matchLog));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+
+  const download = () => {
+    const blob = new Blob([matchLogToText(matchLog)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vibecheque-${matchLog.matchId}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="w-full rounded-2xl border border-white/10 bg-black/60 p-3 text-left font-mono text-[10px] text-zinc-300">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-fuchsia-300 uppercase tracking-widest">
+          debug · {s.length} samples
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={copy}
+            className="rounded-full border border-white/20 px-3 py-1 text-[10px] uppercase tracking-widest text-white transition hover:bg-white/10"
+          >
+            {copied ? "copied ✓" : "copy"}
+          </button>
+          <button
+            onClick={download}
+            className="rounded-full border border-white/20 px-3 py-1 text-[10px] uppercase tracking-widest text-white transition hover:bg-white/10"
+          >
+            .json
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        <span className="text-zinc-500">avg activity</span>
+        <span className="tabular-nums">{avgActivity.toFixed(1)}</span>
+        <span className="text-zinc-500">peak activity</span>
+        <span className="tabular-nums">{peakActivity.toFixed(1)}</span>
+        <span className="text-zinc-500">beat window %</span>
+        <span className="tabular-nums">{beatPct.toFixed(1)}</span>
+        <span className="text-zinc-500">music on %</span>
+        <span className="tabular-nums">{musicPct.toFixed(1)}</span>
+        <span className="text-zinc-500">final BPM</span>
+        <span className="tabular-nums">{finalBpm || "—"}</span>
       </div>
     </div>
   );
