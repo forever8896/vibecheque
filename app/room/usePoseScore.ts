@@ -24,6 +24,10 @@ export type PoseFrame = {
   musicOn: boolean;
   bassIntensity: number;
   bpm: number;
+  // Source video intrinsic dimensions — used by overlays to do proper
+  // object-cover landmark→canvas mapping
+  videoW: number;
+  videoH: number;
   // Diagnostic carry-overs (kept for the match log)
   activity: number; // |avgVelocity| for debugging
 };
@@ -205,6 +209,8 @@ export function usePoseScore(
         musicOn,
         bassIntensity: beatState.intensity,
         bpm: beatState.bpm,
+        videoW: video.videoWidth,
+        videoH: video.videoHeight,
         activity: activityRaw,
       };
 

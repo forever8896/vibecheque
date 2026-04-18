@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { frameAt, loadChoreo, type Choreo } from "./choreography";
 import { useSession } from "./SessionProvider";
+import { makeLandmarkMapper } from "./landmarkMap";
 
 // Draws the reference choreography stick figure *on top of the local
 // dancer* — anchored on their shoulders, scaled to their torso, so the
@@ -99,15 +100,21 @@ export function ChoreoOverlay() {
         return;
       }
 
-      // User torso in tile-pixel coords
-      const usM = {
-        x: ((uLS.x + uRS.x) / 2) * W,
-        y: ((uLS.y + uRS.y) / 2) * H,
-      };
-      const uhM = {
-        x: ((uLH.x + uRH.x) / 2) * W,
-        y: ((uLH.y + uRH.y) / 2) * H,
-      };
+      // User torso in tile-pixel coords — use object-cover-aware mapping
+      // or the pink reference will drift horizontally whenever the
+      // webcam aspect doesn't match the tile's.
+      const toTile = makeLandmarkMapper(
+        user.videoW,
+        user.videoH,
+        W,
+        H,
+      );
+      const lsT = toTile(uLS.x, uLS.y);
+      const rsT = toTile(uRS.x, uRS.y);
+      const lhT = toTile(uLH.x, uLH.y);
+      const rhT = toTile(uRH.x, uRH.y);
+      const usM = { x: (lsT.x + rsT.x) / 2, y: (lsT.y + rsT.y) / 2 };
+      const uhM = { x: (lhT.x + rhT.x) / 2, y: (lhT.y + rhT.y) / 2 };
       const userTorsoPx = Math.hypot(usM.x - uhM.x, usM.y - uhM.y);
       if (userTorsoPx < 20) return;
 

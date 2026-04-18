@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
+import { makeLandmarkMapper } from "./landmarkMap";
 
 // Single-color skeleton for the player's own body — kept visually
 // distinct from the pink/green ChoreoOverlay target with a cyan/white
@@ -85,6 +86,8 @@ export function BodyAura() {
       void phase;
 
       const lm = frame.landmarks;
+      const toTile = makeLandmarkMapper(frame.videoW, frame.videoH, w, h);
+
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -99,9 +102,11 @@ export function BodyAura() {
         const pb = lm[b];
         if (!pa || !pb) continue;
         if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3) continue;
+        const paT = toTile(pa.x, pa.y);
+        const pbT = toTile(pb.x, pb.y);
         ctx.beginPath();
-        ctx.moveTo(pa.x * w, pa.y * h);
-        ctx.lineTo(pb.x * w, pb.y * h);
+        ctx.moveTo(paT.x, paT.y);
+        ctx.lineTo(pbT.x, pbT.y);
         ctx.stroke();
       }
 
@@ -109,8 +114,9 @@ export function BodyAura() {
       for (const i of BODY_JOINTS) {
         const p = lm[i];
         if (!p || (p.visibility ?? 1) < 0.3) continue;
+        const pt = toTile(p.x, p.y);
         ctx.beginPath();
-        ctx.arc(p.x * w, p.y * h, 4, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
         ctx.fill();
       }
 
