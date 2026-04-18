@@ -22,8 +22,8 @@ function useArmsUpGesture(onFire: () => void, enabled: boolean) {
     let lastTs = performance.now();
     let lastSet = 0;
     let fired = false;
-    const THRESHOLD = 0.7;
-    const REQUIRED_MS = 1500;
+    const THRESHOLD = 0.55;
+    const REQUIRED_MS = 1200;
 
     function loop() {
       if (cancelled) return;

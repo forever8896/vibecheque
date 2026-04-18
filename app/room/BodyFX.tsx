@@ -3,60 +3,40 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 
-// Per-limb colors for the skeleton overlay
-type LimbGroup = { color: string; connections: [number, number][] };
-const LIMB_GROUPS: LimbGroup[] = [
-  // person's left arm
-  {
-    color: "#22d3ee",
-    connections: [
-      [11, 13],
-      [13, 15],
-      [15, 17],
-      [15, 19],
-    ],
-  },
-  // person's right arm
-  {
-    color: "#facc15",
-    connections: [
-      [12, 14],
-      [14, 16],
-      [16, 18],
-      [16, 20],
-    ],
-  },
-  // left leg
-  {
-    color: "#ff4df0",
-    connections: [
-      [23, 25],
-      [25, 27],
-      [27, 31],
-    ],
-  },
-  // right leg
-  {
-    color: "#4ade80",
-    connections: [
-      [24, 26],
-      [26, 28],
-      [28, 32],
-    ],
-  },
-  // torso + neck
-  {
-    color: "#ffffff",
-    connections: [
-      [11, 12],
-      [11, 23],
-      [12, 24],
-      [23, 24],
-      [0, 11],
-      [0, 12],
-    ],
-  },
+// Single-color skeleton for the player's own body — kept visually
+// distinct from the pink/green ChoreoOverlay target with a cyan/white
+// scheme. One color-group instead of per-limb so the body reads as
+// "you" and the reference reads as "target to match".
+const BODY_CONNECTIONS: [number, number][] = [
+  // torso
+  [11, 12],
+  [11, 23],
+  [12, 24],
+  [23, 24],
+  // arms
+  [11, 13],
+  [13, 15],
+  [15, 17],
+  [15, 19],
+  [12, 14],
+  [14, 16],
+  [16, 18],
+  [16, 20],
+  // legs
+  [23, 25],
+  [25, 27],
+  [27, 31],
+  [24, 26],
+  [26, 28],
+  [28, 32],
+  // neck
+  [0, 11],
+  [0, 12],
 ];
+const BODY_JOINTS: number[] = [
+  11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28,
+];
+const BODY_COLOR = "#22d3ee"; // cyan — distinct from target pink/green
 
 // Lightweight single-pass skeleton: one stroke with a glow per limb
 export function BodyAura() {
@@ -100,38 +80,38 @@ export function BodyAura() {
       const h = rect.height;
       ctx.clearRect(0, 0, w, h);
 
-      if (phase === "idle") return;
-
       const frame = localFrameRef.current;
       if (!frame) return;
+      void phase;
 
       const lm = frame.landmarks;
-      const intensity = Math.max(
-        0.4,
-        Math.min(1, frame.score / 100 + 0.4),
-      );
-
       ctx.save();
-      ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.lineWidth = 5 * intensity;
-      ctx.shadowBlur = 14 * intensity;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = BODY_COLOR;
+      ctx.fillStyle = BODY_COLOR;
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = BODY_COLOR;
 
-      for (const group of LIMB_GROUPS) {
-        ctx.strokeStyle = group.color;
-        ctx.shadowColor = group.color;
-        for (const [a, b] of group.connections) {
-          const pa = lm[a];
-          const pb = lm[b];
-          if (!pa || !pb) continue;
-          if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3)
-            continue;
-          ctx.beginPath();
-          ctx.moveTo(pa.x * w, pa.y * h);
-          ctx.lineTo(pb.x * w, pb.y * h);
-          ctx.stroke();
-        }
+      for (const [a, b] of BODY_CONNECTIONS) {
+        const pa = lm[a];
+        const pb = lm[b];
+        if (!pa || !pb) continue;
+        if ((pa.visibility ?? 1) < 0.3 || (pb.visibility ?? 1) < 0.3) continue;
+        ctx.beginPath();
+        ctx.moveTo(pa.x * w, pa.y * h);
+        ctx.lineTo(pb.x * w, pb.y * h);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 8;
+      for (const i of BODY_JOINTS) {
+        const p = lm[i];
+        if (!p || (p.visibility ?? 1) < 0.3) continue;
+        ctx.beginPath();
+        ctx.arc(p.x * w, p.y * h, 4, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       ctx.restore();

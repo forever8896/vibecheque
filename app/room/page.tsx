@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
+  BodyAura,
   FlowPill,
   PlayerTint,
   ScoreCallouts,
@@ -225,6 +226,7 @@ function DanceTile() {
             className="absolute inset-0"
           >
             <AttachedVideo publication={camPub} />
+            {isLocal && showGameOverlays && <BodyAura />}
             {isLocal && active && showGameOverlays && <ChoreoOverlay />}
           </div>
         </div>
@@ -241,7 +243,7 @@ function DanceTile() {
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
-          {isLocal && active && <PoseGhostLabel />}
+          {isLocal && (phase === "idle" || active) && <PoseGhostLabel />}
           {isLocal && <ScoreCallouts />}
           <ScoreOverlay />
           <FlowPill identity={identity} />
