@@ -30,11 +30,22 @@ export async function loadChoreo(): Promise<Choreo | null> {
     .then((c) => {
       if (c && c.frames && c.frames.length > 0) {
         cached = c;
+        console.log(
+          "[choreo] loaded",
+          c.frameCount,
+          "frames over",
+          c.durationMs,
+          "ms",
+        );
         return c;
       }
+      console.warn("[choreo] /choreo.json missing or empty");
       return null;
     })
-    .catch(() => null);
+    .catch((e) => {
+      console.warn("[choreo] fetch failed", e);
+      return null;
+    });
   return loading;
 }
 

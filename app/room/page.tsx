@@ -26,6 +26,7 @@ import {
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
 import { PoseGhostLabel } from "./PoseGhost";
+import { ChoreoPreview } from "./ChoreoPreview";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -240,6 +241,7 @@ function DanceTile() {
         <>
           <PlayerTint identity={identity} active={active} />
           {isLocal && active && <PoseGhostLabel />}
+          {isLocal && <ChoreoPreview />}
           {isLocal && <ScoreCallouts />}
           <ScoreOverlay />
           <FlowPill identity={identity} />
