@@ -41,6 +41,8 @@ type Session = {
   participants: number;
   maxPlayers: number;
   lobbyLocked: boolean;
+  nextMatchId: string | null;
+  activeMatchId: string | null;
   meetMode: boolean;
   enterMeet: () => void;
   exitMeet: () => void;
@@ -68,6 +70,8 @@ const SessionContext = createContext<Session>({
   participants: 0,
   maxPlayers: 4,
   lobbyLocked: false,
+  nextMatchId: null,
+  activeMatchId: null,
   meetMode: false,
   enterMeet: () => {},
   exitMeet: () => {},
@@ -96,6 +100,7 @@ export function SessionProvider({
   const [winnings, setWinnings] = useState<Map<string, number>>(new Map());
   const [flowRates, setFlowRates] = useState<Map<string, number>>(new Map());
   const [meetMode, setMeetMode] = useState(false);
+  const settledMatchesRef = useRef<Set<string>>(new Set());
 
   const enterMeet = useCallback(() => setMeetMode(true), []);
   const exitMeet = useCallback(() => setMeetMode(false), []);
@@ -106,6 +111,35 @@ export function SessionProvider({
       setMeetMode(false);
     }
   }, [lobby.phase]);
+
+  // Auto-settle once per match when phase hits "ended". Convert the
+  // simulated winnings map (net) into absolute payouts (buy-in + winnings
+  // for winners, 0 for losers) and POST to /api/settle. Server is
+  // idempotent; any peer firing first is fine.
+  const winningsRef = useRef(winnings);
+  winningsRef.current = winnings;
+  useEffect(() => {
+    if (lobby.phase !== "ended") return;
+    const m = lobby.match;
+    if (!m) return;
+    if (settledMatchesRef.current.has(m.id)) return;
+    settledMatchesRef.current.add(m.id);
+
+    const entries = [...winningsRef.current.entries()];
+    const BUY_IN_USD = 1;
+    const payouts = entries
+      .filter(([addr]) => /^0x[0-9a-fA-F]{40}$/.test(addr))
+      .map(([address, net]) => ({
+        address,
+        amount: net > 0 ? BUY_IN_USD + net : 0,
+      }));
+
+    void fetch("/api/settle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ matchId: m.id, payouts }),
+    }).catch((err) => console.warn("[settle] request failed", err));
+  }, [lobby.phase, lobby.match]);
   const totalsMatchIdRef = useRef<string | null>(null);
   const scoresRef = useRef(scores);
   useEffect(() => {
@@ -117,6 +151,7 @@ export function SessionProvider({
     participants: lobbyParticipants,
     maxPlayers,
     locked: lobbyLocked,
+    nextMatchId,
     match,
     phase,
     secondsToStart,
@@ -126,6 +161,7 @@ export function SessionProvider({
     startMatch: startMatchBase,
     ingestBroadcast,
   } = lobby;
+  const activeMatchId = match?.id ?? null;
 
   // LiveKitRoom video/audio props sometimes don't auto-publish reliably.
   // Force-enable camera+mic once we're connected.
@@ -330,6 +366,8 @@ export function SessionProvider({
       participants: lobbyParticipants,
       maxPlayers,
       lobbyLocked,
+      nextMatchId,
+      activeMatchId,
       meetMode,
       enterMeet,
       exitMeet,
@@ -351,6 +389,8 @@ export function SessionProvider({
       lobbyParticipants,
       maxPlayers,
       lobbyLocked,
+      nextMatchId,
+      activeMatchId,
       meetMode,
       enterMeet,
       exitMeet,

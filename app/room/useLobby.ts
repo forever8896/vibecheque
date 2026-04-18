@@ -12,6 +12,7 @@ type LobbySnapshot = {
   locked: boolean;
   maxPlayers: number;
   match: Match | null;
+  nextMatchId: string;
   serverNow: number;
 };
 
@@ -21,6 +22,7 @@ export type Lobby = {
   maxPlayers: number;
   locked: boolean;
   match: Match | null;
+  nextMatchId: string | null;
   phase: MatchPhase;
   secondsToStart: number;
   secondsElapsed: number;
@@ -163,6 +165,7 @@ export function useLobby(
     maxPlayers: snapshot?.maxPlayers ?? 4,
     locked: snapshot?.locked ?? false,
     match: snapshot?.match ?? null,
+    nextMatchId: snapshot?.nextMatchId ?? null,
     ...derived,
     startMatch,
     ingestBroadcast,

@@ -3,6 +3,7 @@
 import { useParticipants } from "@livekit/components-react";
 import { useEffect, useState } from "react";
 import { useSession } from "./SessionProvider";
+import { StakePill } from "./StakePill";
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -79,6 +80,8 @@ export function MatchHUD() {
             </p>
           </div>
         )}
+
+        <StakePill />
       </div>
     );
   }

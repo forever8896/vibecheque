@@ -14,6 +14,8 @@ export type Room = {
   participants: Map<string, { lastSeenAt: number; name?: string }>;
   locked: boolean;
   match: Match | null;
+  // Id that the *next* match will use — players can pre-stake into it
+  nextMatchId: string;
 };
 
 export const ROOM_MAX = 4;
@@ -40,6 +42,8 @@ export function prune(now: number = Date.now()) {
     ) {
       room.match = null;
       room.locked = false;
+      // Rotate to a fresh match id so old stakes don't spill into the next game
+      room.nextMatchId = randomMatchId();
     }
   }
   for (const [name, room] of rooms) {
@@ -57,12 +61,17 @@ export function snapshot(room: Room, now: number) {
     locked: room.locked,
     maxPlayers: ROOM_MAX,
     match: room.match,
+    nextMatchId: room.nextMatchId,
     serverNow: now,
   };
 }
 
 export function randomRoomName() {
   return `vibecheque-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function randomMatchId() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export function findOrAssign(
@@ -93,6 +102,7 @@ export function findOrAssign(
     participants: new Map([[identity, { lastSeenAt: now, name: displayName }]]),
     locked: false,
     match: null,
+    nextMatchId: randomMatchId(),
   };
   rooms.set(room.name, room);
   return room;

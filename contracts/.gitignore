@@ -1,0 +1,12 @@
+# Compiler output
+out/
+cache/
+
+# Foundry deps — fetched via forge install, no need in tree
+lib/
+
+# Forge artifacts
+broadcast/*/dry-run/
+
+# Environment
+.env

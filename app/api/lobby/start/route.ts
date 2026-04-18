@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       ? Math.min(180_000, body.duration)
       : DEFAULT_MATCH_DURATION_MS;
   room.match = {
-    id: Math.random().toString(36).slice(2, 10),
+    id: room.nextMatchId,
     startAt: now + COUNTDOWN_MS,
     duration,
   };
