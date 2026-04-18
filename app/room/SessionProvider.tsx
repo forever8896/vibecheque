@@ -217,7 +217,7 @@ export function SessionProvider({
   }, [localParticipant]);
 
   const forcedTargetName =
-    lobby.phase === "idle" ? "ARMS_UP" : null;
+    lobby.phase === "idle" ? "DAB_LEFT" : null;
 
   // Load choreography JSON for the currently-selected track; refresh when
   // the selection changes so ChoreoOverlay + scorer pick up the swap.

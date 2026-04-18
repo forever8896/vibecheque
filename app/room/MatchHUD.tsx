@@ -1,15 +1,26 @@
 "use client";
 
 import { useParticipants } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
 import { matchLogToText } from "./useMatchLog";
 import { TrackSelector } from "./TrackSelector";
+import { POSE_LIBRARY, type PoseTarget } from "./poseLibrary";
+import { poseSimilarity } from "./poseMatcher";
 
-function useArmsUpGesture(onFire: () => void, enabled: boolean) {
+function useDabGesture(onFire: () => void, enabled: boolean) {
   const { localFrameRef } = useSession();
   const [progress, setProgress] = useState(0);
+
+  // Accept either mirror of the dab — whichever side the player throws.
+  const dabTargets = useMemo<PoseTarget[]>(
+    () =>
+      POSE_LIBRARY.filter(
+        (p) => p.name === "DAB_LEFT" || p.name === "DAB_RIGHT",
+      ),
+    [],
+  );
 
   useEffect(() => {
     if (!enabled) {
@@ -22,7 +33,7 @@ function useArmsUpGesture(onFire: () => void, enabled: boolean) {
     let lastTs = performance.now();
     let lastSet = 0;
     let fired = false;
-    const THRESHOLD = 0.55;
+    const THRESHOLD = 0.5;
     const REQUIRED_MS = 1200;
 
     function loop() {
@@ -32,9 +43,17 @@ function useArmsUpGesture(onFire: () => void, enabled: boolean) {
       const dt = now - lastTs;
       lastTs = now;
       const f = localFrameRef.current;
-      const sim = f?.similarity ?? 0;
-      const onTargetPose = f?.target?.name === "ARMS_UP";
-      if (onTargetPose && sim > THRESHOLD) {
+      // Score against both mirrors so either side of the dab counts — the
+      // scorer only exposes similarity against the forced target, so we
+      // recompute locally against the other mirror too.
+      let sim = 0;
+      if (f?.landmarks) {
+        for (const t of dabTargets) {
+          const s = poseSimilarity(f.landmarks, t);
+          if (s > sim) sim = s;
+        }
+      }
+      if (sim > THRESHOLD) {
         hold += dt;
       } else {
         hold = Math.max(0, hold - dt * 1.8);
@@ -55,7 +74,7 @@ function useArmsUpGesture(onFire: () => void, enabled: boolean) {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [enabled, localFrameRef, onFire]);
+  }, [enabled, localFrameRef, onFire, dabTargets]);
 
   return progress;
 }
@@ -92,7 +111,7 @@ export function MatchHUD() {
   const participants = useParticipants();
 
   const canGesture = phase === "idle" && !lobbyLocked && lobbyCount >= 1;
-  const gestureProgress = useArmsUpGesture(() => {
+  const gestureProgress = useDabGesture(() => {
     void startMatch();
   }, canGesture);
 
@@ -128,7 +147,7 @@ export function MatchHUD() {
         ) : (
           <div className="pointer-events-auto flex flex-col items-center gap-3">
             <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-fuchsia-200">
-              raise both arms to start
+              strike a dab to start
             </p>
             <div className="relative h-2 w-56 overflow-hidden rounded-full border border-white/15 bg-black/60">
               <div

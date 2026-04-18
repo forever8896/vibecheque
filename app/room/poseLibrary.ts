@@ -115,4 +115,35 @@ export const POSE_LIBRARY: PoseTarget[] = [
     label: "FLEX",
     vectors: [RIGHT, UP_RIGHT, LEFT, UP_LEFT, DOWN, DOWN, DOWN, DOWN],
   },
+  // Dab — person's left arm extended up-out, right arm bent with face tucked.
+  // Upper arms both raise outward; the bent forearm folds back toward the face.
+  {
+    name: "DAB_LEFT",
+    label: "STRIKE A DAB",
+    vectors: [
+      UP_RIGHT, // left upper arm: raised up-outward (person's left = camera +x)
+      UP_RIGHT, // left forearm: continues straight out
+      UP_LEFT, // right upper arm: raised up-outward (person's right = camera -x)
+      DOWN_RIGHT, // right forearm: folds back down-toward-face
+      DOWN,
+      DOWN,
+      DOWN,
+      DOWN,
+    ],
+  },
+  // Mirror of DAB_LEFT — right arm extended, left arm bent.
+  {
+    name: "DAB_RIGHT",
+    label: "STRIKE A DAB",
+    vectors: [
+      UP_RIGHT, // left upper arm: raised up-outward
+      DOWN_LEFT, // left forearm: folds back down-toward-face
+      UP_LEFT, // right upper arm: raised up-outward
+      UP_LEFT, // right forearm: continues straight out
+      DOWN,
+      DOWN,
+      DOWN,
+      DOWN,
+    ],
+  },
 ];
