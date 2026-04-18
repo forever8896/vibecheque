@@ -174,11 +174,12 @@ function clamp(v: number, lo: number, hi: number) {
 
 function DanceTile() {
   const participant = useMaybeParticipantContext();
-  const { scores, phase, localFrameRef } = useSession();
+  const { scores, phase, localFrameRef, meetMode } = useSession();
   const identity = participant?.identity;
   const isLocal = participant?.isLocal ?? false;
   const score = identity ? (scores.get(identity) ?? 0) : 0;
   const active = phase === "playing" || phase === "countdown";
+  const showGameOverlays = !meetMode;
 
   const camPub = participant?.getTrackPublication(Track.Source.Camera);
   const hasVideo = !!camPub?.track;
@@ -186,7 +187,7 @@ function DanceTile() {
   const trackingApi = useLocalCameraTracking(
     localFrameRef,
     isLocal,
-    isLocal,
+    isLocal && !meetMode,
   );
 
   return (
@@ -198,7 +199,8 @@ function DanceTile() {
         <div
           className="absolute inset-0 transition-[filter] duration-300"
           style={{
-            filter: active ? tileVideoFilter(score, isLocal) : "none",
+            filter:
+              active && !meetMode ? tileVideoFilter(score, isLocal) : "none",
           }}
         >
           <div
@@ -206,7 +208,7 @@ function DanceTile() {
             className="absolute inset-0"
           >
             <AttachedVideo publication={camPub} />
-            {isLocal && <BodyAura />}
+            {isLocal && showGameOverlays && <BodyAura />}
           </div>
         </div>
       ) : (
@@ -219,10 +221,20 @@ function DanceTile() {
           </p>
         </div>
       )}
-      <PlayerTint identity={identity} active={active} />
-      {isLocal && <ScoreCallouts />}
-      <ScoreOverlay />
-      <FlowPill identity={identity} />
+      {showGameOverlays && (
+        <>
+          <PlayerTint identity={identity} active={active} />
+          {isLocal && <ScoreCallouts />}
+          <ScoreOverlay />
+          <FlowPill identity={identity} />
+        </>
+      )}
+      {meetMode && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-white/10 bg-black/70 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-200 backdrop-blur">
+          {participant?.name || identity?.slice(0, 10) || "guest"}
+          {isLocal ? " · you" : ""}
+        </div>
+      )}
     </div>
   );
 }
@@ -309,11 +321,13 @@ function Stage() {
 }
 
 function RoomInner() {
-  const { match, phase, secondsElapsed, roomName } = useSession();
+  const { match, phase, secondsElapsed, roomName, meetMode } = useSession();
   return (
     <div className="fixed inset-0 flex flex-col bg-black">
       <header className="flex items-center justify-between px-4 py-3 text-xs uppercase tracking-widest opacity-70">
-        <span>VibeCheque · {roomName ?? "lobby"}</span>
+        <span>
+          VibeCheque · {meetMode ? "chill room" : (roomName ?? "lobby")}
+        </span>
         <Link href="/" className="text-zinc-400 hover:text-white">
           leave
         </Link>
@@ -324,7 +338,7 @@ function RoomInner() {
       </div>
       <RoomAudioRenderer />
       <SyncedMusic match={match} phase={phase} secondsElapsed={secondsElapsed} />
-      <BeatPulse />
+      {!meetMode && <BeatPulse />}
     </div>
   );
 }

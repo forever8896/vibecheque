@@ -1,6 +1,7 @@
 "use client";
 
 import { useParticipants } from "@livekit/components-react";
+import { useEffect, useState } from "react";
 import { useSession } from "./SessionProvider";
 
 function pad(n: number) {
@@ -27,8 +28,15 @@ export function MatchHUD() {
     participants: lobbyCount,
     maxPlayers,
     lobbyLocked,
+    meetMode,
+    enterMeet,
+    exitMeet,
   } = useSession();
   const participants = useParticipants();
+
+  if (meetMode) {
+    return <MeetScreen onLeave={exitMeet} />;
+  }
 
   if (phase === "idle") {
     const ready = lobbyCount >= 2 && !lobbyLocked;
@@ -199,8 +207,55 @@ export function MatchHUD() {
           >
             Dance again
           </button>
+          <button
+            onClick={() => enterMeet()}
+            className="rounded-full border border-white/30 bg-white/10 px-6 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
+          >
+            Meet one another →
+          </button>
         </div>
       </div>
     </div>
+  );
+}
+
+// Post-match chill room: music off, game overlays off, voice still live
+// via LiveKit audio. Prompts the user to take off their sunglasses so the
+// conversation feels real.
+function MeetScreen({ onLeave }: { onLeave: () => void }) {
+  const [showPrompt, setShowPrompt] = useState(true);
+  // Fade the "take off your sunglasses" prompt after a few seconds so
+  // it doesn't hog the screen while people are actually chatting.
+  useEffect(() => {
+    const id = setTimeout(() => setShowPrompt(false), 6000);
+    return () => clearTimeout(id);
+  }, []);
+
+  return (
+    <>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center gap-2 px-4 pt-6">
+        <div
+          className={`flex items-center gap-2 rounded-full border border-white/15 bg-black/70 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 backdrop-blur transition-opacity duration-700 ${
+            showPrompt ? "opacity-100" : "opacity-50"
+          }`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(74,222,128,0.8)]" />
+          <span>voice live · music off</span>
+        </div>
+        {showPrompt && (
+          <h2 className="mt-2 rounded-2xl bg-black/50 px-6 py-3 text-center font-mono text-2xl font-semibold uppercase tracking-[0.18em] text-white drop-shadow-[0_2px_30px_rgba(0,0,0,0.85)] backdrop-blur md:text-3xl">
+            Take off your sunglasses
+          </h2>
+        )}
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center">
+        <button
+          onClick={onLeave}
+          className="pointer-events-auto rounded-full border border-white/20 bg-black/60 px-5 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 backdrop-blur hover:text-white"
+        >
+          ← back to dance floor
+        </button>
+      </div>
+    </>
   );
 }

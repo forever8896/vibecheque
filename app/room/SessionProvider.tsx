@@ -41,6 +41,9 @@ type Session = {
   participants: number;
   maxPlayers: number;
   lobbyLocked: boolean;
+  meetMode: boolean;
+  enterMeet: () => void;
+  exitMeet: () => void;
 };
 
 const noopRef = { current: null } as React.RefObject<PoseFrame | null>;
@@ -65,6 +68,9 @@ const SessionContext = createContext<Session>({
   participants: 0,
   maxPlayers: 4,
   lobbyLocked: false,
+  meetMode: false,
+  enterMeet: () => {},
+  exitMeet: () => {},
 });
 
 export function useSession() {
@@ -89,6 +95,17 @@ export function SessionProvider({
   const [totals, setTotals] = useState<Map<string, number>>(new Map());
   const [winnings, setWinnings] = useState<Map<string, number>>(new Map());
   const [flowRates, setFlowRates] = useState<Map<string, number>>(new Map());
+  const [meetMode, setMeetMode] = useState(false);
+
+  const enterMeet = useCallback(() => setMeetMode(true), []);
+  const exitMeet = useCallback(() => setMeetMode(false), []);
+
+  // Reset meet mode whenever a new match actually starts playing
+  useEffect(() => {
+    if (lobby.phase === "countdown" || lobby.phase === "playing") {
+      setMeetMode(false);
+    }
+  }, [lobby.phase]);
   const totalsMatchIdRef = useRef<string | null>(null);
   const scoresRef = useRef(scores);
   useEffect(() => {
@@ -313,6 +330,9 @@ export function SessionProvider({
       participants: lobbyParticipants,
       maxPlayers,
       lobbyLocked,
+      meetMode,
+      enterMeet,
+      exitMeet,
     }),
     [
       scores,
@@ -331,6 +351,9 @@ export function SessionProvider({
       lobbyParticipants,
       maxPlayers,
       lobbyLocked,
+      meetMode,
+      enterMeet,
+      exitMeet,
     ],
   );
 
