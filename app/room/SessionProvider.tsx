@@ -21,7 +21,7 @@ import {
 } from "react";
 import type { Match, MatchPhase } from "./useMatch";
 import { useMatch } from "./useMatch";
-import { usePoseScore } from "./usePoseScore";
+import { usePoseScore, type PoseFrame } from "./usePoseScore";
 
 type Session = {
   scores: Map<string, number>;
@@ -33,7 +33,10 @@ type Session = {
   secondsRemaining: number;
   progress: number;
   startMatch: (duration?: number) => Promise<Match | null>;
+  localFrameRef: React.RefObject<PoseFrame | null>;
 };
+
+const noopRef = { current: null } as React.RefObject<PoseFrame | null>;
 
 const SessionContext = createContext<Session>({
   scores: new Map(),
@@ -45,6 +48,7 @@ const SessionContext = createContext<Session>({
   secondsRemaining: 0,
   progress: 0,
   startMatch: async () => null,
+  localFrameRef: noopRef,
 });
 
 export function useSession() {
@@ -96,7 +100,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
   }, [localParticipant]);
 
-  const myScore = usePoseScore(localTrack);
+  const { score: myScore, frameRef: localFrameRef } = usePoseScore(localTrack);
 
   // Reflect my own score in the shared map
   useEffect(() => {
@@ -204,6 +208,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       secondsRemaining,
       progress,
       startMatch,
+      localFrameRef,
     }),
     [
       scores,
@@ -215,6 +220,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       secondsRemaining,
       progress,
       startMatch,
+      localFrameRef,
     ],
   );
 

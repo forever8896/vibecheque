@@ -24,3 +24,26 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes scoreRise {
+  0% {
+    transform: translate(-50%, 20px) scale(0.6);
+    opacity: 0;
+    letter-spacing: 0.1em;
+  }
+  15% {
+    transform: translate(-50%, -8px) scale(1.18);
+    opacity: 1;
+    letter-spacing: 0.35em;
+  }
+  45% {
+    transform: translate(-50%, -18px) scale(1);
+    opacity: 1;
+    letter-spacing: 0.25em;
+  }
+  100% {
+    transform: translate(-50%, -70px) scale(0.9);
+    opacity: 0;
+    letter-spacing: 0.5em;
+  }
+}

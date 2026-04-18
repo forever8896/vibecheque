@@ -12,6 +12,12 @@ import { Track } from "livekit-client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
+import {
+  BodyAura,
+  ScoreCallouts,
+  TileAmbient,
+  tileVideoFilter,
+} from "./BodyFX";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -41,9 +47,29 @@ function ScoreOverlay() {
 }
 
 function DanceTile() {
+  const participant = useMaybeParticipantContext();
+  const { scores, phase } = useSession();
+  const identity = participant?.identity;
+  const isLocal = participant?.isLocal ?? false;
+  const score = identity ? (scores.get(identity) ?? 0) : 0;
+  const active = phase === "playing" || phase === "countdown";
+
   return (
-    <div className="relative h-full w-full">
-      <ParticipantTile />
+    <div
+      data-dance-tile={identity}
+      className="relative h-full w-full overflow-hidden rounded-xl"
+    >
+      <div
+        className="absolute inset-0 transition-[filter] duration-300"
+        style={{
+          filter: active ? tileVideoFilter(score, isLocal) : "none",
+        }}
+      >
+        <ParticipantTile />
+      </div>
+      {isLocal && <BodyAura />}
+      <TileAmbient identity={identity} />
+      {isLocal && <ScoreCallouts />}
       <ScoreOverlay />
     </div>
   );

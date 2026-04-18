@@ -5,7 +5,13 @@ import {
   PoseLandmarker,
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+export type PoseFrame = {
+  landmarks: NormalizedLandmark[];
+  score: number;
+  updatedAt: number;
+};
 
 const WASM_BASE =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
@@ -19,8 +25,9 @@ const SCALE = 2500;
 
 export function usePoseScore(
   track: MediaStreamTrack | null | undefined,
-): number {
+): { score: number; frameRef: React.RefObject<PoseFrame | null> } {
   const [score, setScore] = useState(0);
+  const frameRef = useRef<PoseFrame | null>(null);
 
   useEffect(() => {
     if (!track) return;
@@ -90,11 +97,14 @@ export function usePoseScore(
         ema = ema * (1 - EMA_ALPHA) + instant * EMA_ALPHA;
 
         // Throttle state updates to ~10 Hz
+        const s = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
+        frameRef.current = { landmarks: cur, score: s, updatedAt: ts };
         if (ts - lastSetAt > 100) {
           lastSetAt = ts;
-          const s = Math.max(0, Math.min(100, Math.round(ema * SCALE)));
           setScore(s);
         }
+      } else {
+        frameRef.current = { landmarks: cur, score: 0, updatedAt: ts };
       }
       prev = cur;
     }
@@ -106,8 +116,9 @@ export function usePoseScore(
       cancelAnimationFrame(rafId);
       landmarker?.close();
       video.srcObject = null;
+      frameRef.current = null;
     };
   }, [track]);
 
-  return score;
+  return { score, frameRef };
 }
