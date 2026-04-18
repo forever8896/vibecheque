@@ -47,8 +47,15 @@ export function usePoseScore(
     video.autoplay = true;
 
     async function init() {
+      // Fire-and-forget play. AbortError is expected under React strict-mode
+      // double-invocation when cleanup nulls srcObject before play resolves.
+      video.play().catch((err: Error) => {
+        if (err.name !== "AbortError") {
+          console.warn("[pose-score] video.play failed", err);
+        }
+      });
+
       try {
-        await video.play();
         const resolver = await FilesetResolver.forVisionTasks(WASM_BASE);
         landmarker = await PoseLandmarker.createFromOptions(resolver, {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },

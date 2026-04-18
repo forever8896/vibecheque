@@ -5,6 +5,7 @@ import {
   useMaybeRoomContext,
 } from "@livekit/components-react";
 import {
+  ConnectionState,
   LocalVideoTrack,
   RoomEvent,
   Track,
@@ -139,16 +140,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   // Broadcast my score every 500ms
   useEffect(() => {
-    if (!localParticipant) return;
+    if (!localParticipant || !room) return;
     const encoder = new TextEncoder();
     const id = setInterval(() => {
+      if (room.state !== ConnectionState.Connected) return;
       const msg: WireMessage = { type: "score", score: myScore };
-      localParticipant.publishData(encoder.encode(JSON.stringify(msg)), {
-        reliable: false,
-      });
+      try {
+        localParticipant.publishData(encoder.encode(JSON.stringify(msg)), {
+          reliable: false,
+        });
+      } catch {
+        // engine torn down mid-tick — cleanup will clear this interval
+      }
     }, 500);
     return () => clearInterval(id);
-  }, [localParticipant, myScore]);
+  }, [room, localParticipant, myScore]);
 
   // Receive remote messages (scores + match announcements)
   useEffect(() => {
@@ -181,20 +187,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const startMatch = useCallback(
     async (duration?: number) => {
       const m = await startMatchBase(duration);
-      if (m && localParticipant) {
+      if (m && localParticipant && room?.state === ConnectionState.Connected) {
         const msg: WireMessage = {
           type: "match",
           match: m,
           serverNow: Date.now(),
         };
-        localParticipant.publishData(
-          new TextEncoder().encode(JSON.stringify(msg)),
-          { reliable: true },
-        );
+        try {
+          localParticipant.publishData(
+            new TextEncoder().encode(JSON.stringify(msg)),
+            { reliable: true },
+          );
+        } catch {
+          // engine not ready; peers will still pick the match up via the 2s poll
+        }
       }
       return m;
     },
-    [startMatchBase, localParticipant],
+    [startMatchBase, localParticipant, room],
   );
 
   const value = useMemo(
