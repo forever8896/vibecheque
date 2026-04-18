@@ -1,5 +1,6 @@
 "use client";
 
+import { usePrivy } from "@privy-io/react-auth";
 import { useSession } from "./SessionProvider";
 import { useOnChain, useStakeActions } from "@/app/chain/useOnChain";
 import { BUY_IN_WEI, onChainReady } from "@/app/chain/config";
@@ -14,10 +15,28 @@ function fmtVUSD(micros: bigint): string {
 // and the stake-to-play flow. Opt-in — skipping makes it a free-play match.
 export function StakePill() {
   const { nextMatchId, activeMatchId, phase } = useSession();
+  const { authenticated, login, ready: privyReady } = usePrivy();
   const chain = useOnChain({ nextMatchId, activeMatchId });
   const actions = useStakeActions({ refresh: chain.refresh });
 
   if (!onChainReady()) return null;
+
+  // Guest player — offer an optional sign-in to unlock money play
+  if (privyReady && !authenticated) {
+    return (
+      <div className="pointer-events-auto flex flex-col items-center gap-2">
+        <button
+          onClick={() => login()}
+          className="rounded-full border border-fuchsia-400/40 bg-fuchsia-500/15 px-5 py-2 font-mono text-[11px] uppercase tracking-widest text-fuchsia-200 transition hover:bg-fuchsia-500/25"
+        >
+          Sign in for money play
+        </button>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+          optional · guest free play is on
+        </p>
+      </div>
+    );
+  }
 
   const { address, balance, hasClaimed, stakedInNext } = chain;
   const staked = stakedInNext > 0n;

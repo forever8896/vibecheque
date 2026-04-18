@@ -1,39 +1,26 @@
 "use client";
 
-import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SunglassesGate } from "./components/SunglassesGate";
 
 export default function Home() {
   const router = useRouter();
-  const { ready, authenticated, login } = usePrivy();
   const [gatePassed, setGatePassed] = useState(false);
 
   const handleStatusChange = useCallback((passed: boolean) => {
     setGatePassed(passed);
   }, []);
 
-  // Auto-continue the moment the gate locks on.
-  // - Authenticated: briefly hold so the glow registers, then route to /room.
-  // - Not authenticated: fire the Privy login modal; once it completes,
-  //   this effect re-runs with authenticated=true and navigates.
+  // Sunglasses detected → go straight to the room as a guest. Wallet
+  // sign-in lives in the lobby for players who want money play.
   useEffect(() => {
-    if (!gatePassed || !ready) return;
-    if (authenticated) {
-      const id = setTimeout(() => router.push("/room"), 800);
-      return () => clearTimeout(id);
-    }
-    login();
-  }, [gatePassed, ready, authenticated, login, router]);
+    if (!gatePassed) return;
+    const id = setTimeout(() => router.push("/room"), 600);
+    return () => clearTimeout(id);
+  }, [gatePassed, router]);
 
-  const statusLine = !ready
-    ? "waking up"
-    : gatePassed
-      ? authenticated
-        ? "entering the floor…"
-        : "connecting your wallet…"
-      : null;
+  const statusLine = gatePassed ? "entering the floor…" : null;
 
   return (
     <>
