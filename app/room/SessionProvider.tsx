@@ -24,6 +24,13 @@ import type { Lobby, Match, MatchPhase } from "./useLobby";
 import { usePoseScore, type PoseFrame } from "./usePoseScore";
 import { onChainReady } from "@/app/chain/config";
 import { useMatchLog, type MatchLog } from "./useMatchLog";
+import {
+  frameAt,
+  frameToTarget,
+  loadChoreo,
+  type Choreo,
+} from "./choreography";
+import type { PoseTarget } from "./poseLibrary";
 
 type Session = {
   scores: Map<string, number>;
@@ -205,9 +212,51 @@ export function SessionProvider({
 
   const forcedTargetName =
     lobby.phase === "idle" ? "ARMS_UP" : null;
+
+  // Load choreography JSON once; keep a ref so the pose loop can reach it
+  const choreoRef = useRef<Choreo | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void loadChoreo().then((c) => {
+      if (!cancelled) choreoRef.current = c;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Match start time (perf-now scale) so the choreography stays aligned
+  const matchStartPerfRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      lobby.match &&
+      (lobby.phase === "playing" || lobby.phase === "countdown")
+    ) {
+      // Map the match's startAt (wall clock ms) to our local perf-now clock
+      const offset = Date.now() - performance.now();
+      matchStartPerfRef.current = lobby.match.startAt - offset;
+    } else {
+      matchStartPerfRef.current = null;
+    }
+  }, [lobby.match, lobby.phase]);
+
+  // Choreo provider — resolves to a PoseTarget for the current match time
+  // during playing. Returns null any other time so the default rotation or
+  // forced-pose logic stays in charge.
+  const getTarget = useCallback((ts: number): PoseTarget | null => {
+    const choreo = choreoRef.current;
+    const startAt = matchStartPerfRef.current;
+    if (!choreo || startAt == null) return null;
+    const elapsed = ts - startAt;
+    if (elapsed < 0) return null;
+    const frame = frameAt(choreo, elapsed);
+    if (!frame) return null;
+    return frameToTarget(frame);
+  }, []);
+
   const { score: myScore, frameRef: localFrameRef } = usePoseScore(
     localTrack,
-    { forcedTargetName },
+    { forcedTargetName, getTarget },
   );
 
   const matchLog = useMatchLog({

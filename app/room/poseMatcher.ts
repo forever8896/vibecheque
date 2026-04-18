@@ -16,6 +16,9 @@ export function poseSimilarity(
     const bone = BONES[i];
     const targetVec = target.vectors[i];
     if (!targetVec) continue;
+    // Zero-magnitude target vec = "don't care" (reference frame unreliable)
+    const targetMag = Math.hypot(targetVec[0], targetVec[1]);
+    if (targetMag < 0.001) continue;
     const a = landmarks[bone.from];
     const b = landmarks[bone.to];
     if (!a || !b) continue;

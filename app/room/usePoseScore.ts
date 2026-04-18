@@ -38,16 +38,29 @@ const BEATS_PER_POSE = 2;
 // Fallback rotation when music isn't detected.
 const FALLBACK_POSE_MS = 2200;
 
+type PoseTargetProvider = (tsMs: number) => PoseTarget | null;
+
 export function usePoseScore(
   track: MediaStreamTrack | null | undefined,
-  opts?: { forcedTargetName?: string | null },
+  opts?: {
+    forcedTargetName?: string | null;
+    // If set, overrides both forced + random rotation. Called each frame
+    // with the perf-now timestamp; return null to fall through.
+    getTarget?: PoseTargetProvider;
+  },
 ): { score: number; frameRef: React.RefObject<PoseFrame | null> } {
   const [score, setScore] = useState(0);
   const frameRef = useRef<PoseFrame | null>(null);
   const forcedNameRef = useRef<string | null>(opts?.forcedTargetName ?? null);
+  const getTargetRef = useRef<PoseTargetProvider | null>(
+    opts?.getTarget ?? null,
+  );
   useEffect(() => {
     forcedNameRef.current = opts?.forcedTargetName ?? null;
   }, [opts?.forcedTargetName]);
+  useEffect(() => {
+    getTargetRef.current = opts?.getTarget ?? null;
+  }, [opts?.getTarget]);
 
   useEffect(() => {
     if (!track) return;
@@ -145,27 +158,33 @@ export function usePoseScore(
       }
 
       const musicOn = beatState.isActive;
-      // Honor a forced target (e.g. during the idle "raise arms to start"
-      // gesture) — skip the normal rotation while it's set.
-      const forced = forcedNameRef.current;
-      if (forced) {
-        const forcedIdx = POSE_LIBRARY.findIndex((p) => p.name === forced);
-        if (forcedIdx >= 0 && forcedIdx !== targetIdx) {
-          targetIdx = forcedIdx;
-          target = POSE_LIBRARY[forcedIdx];
-          targetStartedAt = ts;
-          peakSim = 0;
-        }
-      } else if (musicOn) {
-        if (beatState.lastFlashAt > lastBeatSeen) {
-          lastBeatSeen = beatState.lastFlashAt;
-          beatsCounted++;
-          if (beatsCounted >= BEATS_PER_POSE) {
-            rotateTarget(ts);
+      // Choreography override beats everything else — a time-aligned
+      // reference frame trumps forced poses and random rotation.
+      const overrideTarget = getTargetRef.current?.(ts) ?? null;
+      if (overrideTarget) {
+        target = overrideTarget;
+        targetIdx = -1;
+      } else {
+        const forced = forcedNameRef.current;
+        if (forced) {
+          const forcedIdx = POSE_LIBRARY.findIndex((p) => p.name === forced);
+          if (forcedIdx >= 0 && forcedIdx !== targetIdx) {
+            targetIdx = forcedIdx;
+            target = POSE_LIBRARY[forcedIdx];
+            targetStartedAt = ts;
+            peakSim = 0;
           }
+        } else if (musicOn) {
+          if (beatState.lastFlashAt > lastBeatSeen) {
+            lastBeatSeen = beatState.lastFlashAt;
+            beatsCounted++;
+            if (beatsCounted >= BEATS_PER_POSE) {
+              rotateTarget(ts);
+            }
+          }
+        } else if (ts - targetStartedAt > FALLBACK_POSE_MS) {
+          rotateTarget(ts);
         }
-      } else if (ts - targetStartedAt > FALLBACK_POSE_MS) {
-        rotateTarget(ts);
       }
 
       // Score against the current target

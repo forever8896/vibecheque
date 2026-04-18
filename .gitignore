@@ -43,3 +43,6 @@ next-env.d.ts
 # choreography source videos (licensed content, for local extraction only)
 /public/dance-sample.*
 /public/choreo-src.*
+
+# MediaPipe model downloaded by the extractor script (5.6 MB, fetch with curl)
+/scripts/models/
