@@ -203,7 +203,12 @@ export function SessionProvider({
     };
   }, [localParticipant]);
 
-  const { score: myScore, frameRef: localFrameRef } = usePoseScore(localTrack);
+  const forcedTargetName =
+    lobby.phase === "idle" ? "ARMS_UP" : null;
+  const { score: myScore, frameRef: localFrameRef } = usePoseScore(
+    localTrack,
+    { forcedTargetName },
+  );
 
   const matchLog = useMatchLog({
     phase: lobby.phase,

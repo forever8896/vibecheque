@@ -40,9 +40,14 @@ const FALLBACK_POSE_MS = 2200;
 
 export function usePoseScore(
   track: MediaStreamTrack | null | undefined,
+  opts?: { forcedTargetName?: string | null },
 ): { score: number; frameRef: React.RefObject<PoseFrame | null> } {
   const [score, setScore] = useState(0);
   const frameRef = useRef<PoseFrame | null>(null);
+  const forcedNameRef = useRef<string | null>(opts?.forcedTargetName ?? null);
+  useEffect(() => {
+    forcedNameRef.current = opts?.forcedTargetName ?? null;
+  }, [opts?.forcedTargetName]);
 
   useEffect(() => {
     if (!track) return;
@@ -139,9 +144,19 @@ export function usePoseScore(
         activityRaw = n > 0 ? sum / n : 0;
       }
 
-      // Rotate the target pose on beat boundaries (or on fallback timer)
       const musicOn = beatState.isActive;
-      if (musicOn) {
+      // Honor a forced target (e.g. during the idle "raise arms to start"
+      // gesture) — skip the normal rotation while it's set.
+      const forced = forcedNameRef.current;
+      if (forced) {
+        const forcedIdx = POSE_LIBRARY.findIndex((p) => p.name === forced);
+        if (forcedIdx >= 0 && forcedIdx !== targetIdx) {
+          targetIdx = forcedIdx;
+          target = POSE_LIBRARY[forcedIdx];
+          targetStartedAt = ts;
+          peakSim = 0;
+        }
+      } else if (musicOn) {
         if (beatState.lastFlashAt > lastBeatSeen) {
           lastBeatSeen = beatState.lastFlashAt;
           beatsCounted++;

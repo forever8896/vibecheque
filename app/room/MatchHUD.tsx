@@ -1,10 +1,63 @@
 "use client";
 
 import { useParticipants } from "@livekit/components-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
 import { matchLogToText } from "./useMatchLog";
+
+function useArmsUpGesture(onFire: () => void, enabled: boolean) {
+  const { localFrameRef } = useSession();
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setProgress(0);
+      return;
+    }
+    let raf = 0;
+    let cancelled = false;
+    let hold = 0;
+    let lastTs = performance.now();
+    let lastSet = 0;
+    let fired = false;
+    const THRESHOLD = 0.7;
+    const REQUIRED_MS = 1500;
+
+    function loop() {
+      if (cancelled) return;
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = now - lastTs;
+      lastTs = now;
+      const f = localFrameRef.current;
+      const sim = f?.similarity ?? 0;
+      const onTargetPose = f?.target?.name === "ARMS_UP";
+      if (onTargetPose && sim > THRESHOLD) {
+        hold += dt;
+      } else {
+        hold = Math.max(0, hold - dt * 1.8);
+      }
+      const p = Math.min(1, hold / REQUIRED_MS);
+      // Throttle state updates to ~15 Hz
+      if (now - lastSet > 65 || p >= 1) {
+        lastSet = now;
+        setProgress(p);
+      }
+      if (p >= 1 && !fired) {
+        fired = true;
+        onFire();
+      }
+    }
+    loop();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [enabled, localFrameRef, onFire]);
+
+  return progress;
+}
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -37,6 +90,11 @@ export function MatchHUD() {
   } = useSession();
   const participants = useParticipants();
 
+  const canGesture = phase === "idle" && !lobbyLocked && lobbyCount >= 1;
+  const gestureProgress = useArmsUpGesture(() => {
+    void startMatch();
+  }, canGesture);
+
   if (meetMode) {
     return <MeetScreen onLeave={exitMeet} />;
   }
@@ -65,19 +123,23 @@ export function MatchHUD() {
             starting…
           </p>
         ) : (
-          <div className="pointer-events-auto flex flex-col items-center gap-2">
+          <div className="pointer-events-auto flex flex-col items-center gap-3">
+            <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-fuchsia-200">
+              raise both arms to start
+            </p>
+            <div className="relative h-2 w-56 overflow-hidden rounded-full border border-white/15 bg-black/60">
+              <div
+                className="absolute inset-y-0 left-0 bg-fuchsia-400 shadow-[0_0_12px_rgba(255,77,240,0.6)] transition-[width] duration-100"
+                style={{ width: `${Math.round(gestureProgress * 100)}%` }}
+              />
+            </div>
             <button
               onClick={() => startMatch()}
               disabled={!ready}
-              className="rounded-full bg-fuchsia-500 px-8 py-4 text-sm font-semibold text-black shadow-[0_0_40px_rgba(255,77,240,0.5)] transition hover:bg-fuchsia-400 disabled:opacity-50"
+              className="rounded-full border border-white/20 bg-black/60 px-5 py-2 font-mono text-[10px] uppercase tracking-widest text-zinc-300 transition hover:text-white disabled:opacity-50"
             >
-              ▶ {solo ? "Dance solo" : "Start now"}
+              or click · {solo ? "dance solo" : "start now"}
             </button>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">
-              {solo
-                ? "go alone or wait for more to join"
-                : "or wait — more can still join"}
-            </p>
           </div>
         )}
 
