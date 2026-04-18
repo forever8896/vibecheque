@@ -93,6 +93,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     ingestBroadcast,
   } = useMatch();
 
+  // LiveKitRoom video/audio props sometimes don't auto-publish reliably.
+  // Force-enable camera+mic once we're connected.
+  useEffect(() => {
+    if (!room || !localParticipant) return;
+    if (room.state !== ConnectionState.Connected) return;
+    localParticipant
+      .setCameraEnabled(true)
+      .catch((e) => console.warn("[room] enable camera", e));
+    localParticipant
+      .setMicrophoneEnabled(true)
+      .catch((e) => console.warn("[room] enable mic", e));
+  }, [room, localParticipant, room?.state]);
+
   // Resolve the local camera MediaStreamTrack
   const [localTrack, setLocalTrack] = useState<MediaStreamTrack | null>(null);
   useEffect(() => {

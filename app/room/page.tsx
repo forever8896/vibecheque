@@ -1,16 +1,19 @@
 "use client";
 
 import {
-  GridLayout,
   LiveKitRoom,
+  ParticipantContext,
   ParticipantTile,
   RoomAudioRenderer,
+  TrackRefContext,
   useMaybeParticipantContext,
-  useTracks,
+  useMaybeRoomContext,
+  useParticipants,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { RoomEvent, Track } from "livekit-client";
+import type { TrackReferenceOrPlaceholder } from "@livekit/components-core";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import {
   BodyAura,
@@ -55,19 +58,33 @@ function DanceTile() {
   const score = identity ? (scores.get(identity) ?? 0) : 0;
   const active = phase === "playing" || phase === "countdown";
 
+  const camPub = participant?.getTrackPublication(Track.Source.Camera);
+  const hasVideo = !!camPub?.track;
+
   return (
     <div
       data-dance-tile={identity}
-      className="relative h-full w-full overflow-hidden rounded-xl"
+      className="relative h-full w-full overflow-hidden rounded-xl bg-zinc-900"
     >
-      <div
-        className="absolute inset-0 transition-[filter] duration-300"
-        style={{
-          filter: active ? tileVideoFilter(score, isLocal) : "none",
-        }}
-      >
-        <ParticipantTile />
-      </div>
+      {hasVideo ? (
+        <div
+          className="absolute inset-0 transition-[filter] duration-300"
+          style={{
+            filter: active ? tileVideoFilter(score, isLocal) : "none",
+          }}
+        >
+          <ParticipantTile />
+        </div>
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5 font-mono text-xl font-semibold text-zinc-300">
+            {(participant?.name || identity || "?").slice(0, 2).toUpperCase()}
+          </div>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+            {isLocal ? "publishing camera…" : "waiting for camera…"}
+          </p>
+        </div>
+      )}
       {isLocal && <BodyAura />}
       <TileAmbient identity={identity} />
       {isLocal && <ScoreCallouts />}
@@ -78,21 +95,57 @@ function DanceTile() {
 }
 
 function Stage() {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false },
-  );
+  const room = useMaybeRoomContext();
+  const participants = useParticipants();
+  const [, bump] = useReducer((x: number) => x + 1, 0);
+
+  useEffect(() => {
+    if (!room) return;
+    const events = [
+      RoomEvent.TrackPublished,
+      RoomEvent.TrackUnpublished,
+      RoomEvent.TrackSubscribed,
+      RoomEvent.TrackUnsubscribed,
+      RoomEvent.LocalTrackPublished,
+      RoomEvent.LocalTrackUnpublished,
+    ];
+    const handler = () => bump();
+    for (const e of events) room.on(e, handler);
+    return () => {
+      for (const e of events) room.off(e, handler);
+    };
+  }, [room]);
+
+  if (participants.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center font-mono text-xs uppercase tracking-widest text-zinc-500">
+        waiting for the room…
+      </div>
+    );
+  }
+
+  const n = participants.length;
+  const cols = n === 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
 
   return (
-    <GridLayout
-      tracks={tracks}
-      className="h-full w-full [--lk-grid-gap:0.5rem]"
+    <div
+      className="grid h-full w-full gap-2"
+      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
-      <DanceTile />
-    </GridLayout>
+      {participants.map((p) => {
+        const pub = p.getTrackPublication(Track.Source.Camera);
+        const trackRef: TrackReferenceOrPlaceholder = pub
+          ? { participant: p, source: Track.Source.Camera, publication: pub }
+          : { participant: p, source: Track.Source.Camera };
+        return (
+          <ParticipantContext.Provider key={p.identity} value={p}>
+            <TrackRefContext.Provider value={trackRef}>
+              <DanceTile />
+            </TrackRefContext.Provider>
+          </ParticipantContext.Provider>
+        );
+      })}
+    </div>
   );
 }
 
