@@ -97,11 +97,25 @@ export function usePoseScore(
       beatsCounted = 0;
     }
 
+    // Keep the video element attached to the DOM (off-screen + aria-hidden)
+    // so browsers continue to decode frames when the visible tile hides
+    // the webcam (e.g. during the reference-video match stage). Detached
+    // video elements can stall decoding, which freezes MediaPipe on the
+    // last landmarks it saw.
     const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
     video.muted = true;
     video.playsInline = true;
     video.autoplay = true;
+    video.setAttribute("aria-hidden", "true");
+    video.style.position = "fixed";
+    video.style.left = "-9999px";
+    video.style.top = "-9999px";
+    video.style.width = "2px";
+    video.style.height = "2px";
+    video.style.opacity = "0";
+    video.style.pointerEvents = "none";
+    document.body.appendChild(video);
 
     async function init() {
       video.play().catch((err: Error) => {
@@ -228,6 +242,7 @@ export function usePoseScore(
       cancelAnimationFrame(rafId);
       landmarker?.close();
       video.srcObject = null;
+      if (video.parentNode) video.parentNode.removeChild(video);
       frameRef.current = null;
     };
   }, [track]);
