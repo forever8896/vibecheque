@@ -26,6 +26,7 @@ import {
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
 import { LobbyPreview } from "./LobbyPreview";
+import { MatchHitFX } from "./MatchHitFX";
 import { PlayerSkeletonOverlay } from "./PlayerSkeletonOverlay";
 import { ReferenceVideoStage } from "./ReferenceVideoStage";
 import { MatchHUD } from "./MatchHUD";
@@ -258,6 +259,10 @@ function DanceTile() {
         (phase === "idle" || active) &&
         selectedTrack?.videoUrl &&
         hasVideo && <PlayerSkeletonOverlay graded={active} />}
+      {isLocal &&
+        !meetMode &&
+        phase === "playing" &&
+        selectedTrack?.videoUrl && <MatchHitFX />}
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
