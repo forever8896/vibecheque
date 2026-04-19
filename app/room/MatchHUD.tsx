@@ -1,7 +1,7 @@
 "use client";
 
 import { useParticipants } from "@livekit/components-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { StakePill } from "./StakePill";
 import { matchLogToText } from "./useMatchLog";
@@ -11,18 +11,27 @@ import { assessDab } from "./dabPose";
 function useDabGesture(onFire: () => void, enabled: boolean) {
   const { localFrameRef } = useSession();
   const [progress, setProgress] = useState(0);
+  // Mirror onFire + enabled into refs so the rAF loop can read the
+  // latest values without the effect restarting every render. Without
+  // this, setProgress → re-render → new inline onFire → effect restarts
+  // → hold resets to 0, and progress could never accumulate to 1.
+  const onFireRef = useRef(onFire);
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    onFireRef.current = onFire;
+  }, [onFire]);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
 
   useEffect(() => {
-    if (!enabled) {
-      setProgress(0);
-      return;
-    }
     let raf = 0;
     let cancelled = false;
     let hold = 0;
     let lastTs = performance.now();
     let lastSet = 0;
     let fired = false;
+    let wasActive = enabledRef.current;
     const REQUIRED_MS = 1000;
 
     function loop() {
@@ -31,6 +40,15 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
       const now = performance.now();
       const dt = now - lastTs;
       lastTs = now;
+      const active = enabledRef.current;
+      if (wasActive !== active) {
+        hold = 0;
+        fired = false;
+        setProgress(0);
+        wasActive = active;
+      }
+      if (!active) return;
+
       const f = localFrameRef.current;
       const matched = f?.landmarks
         ? assessDab(f.landmarks).matched
@@ -47,7 +65,7 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
       }
       if (p >= 1 && !fired) {
         fired = true;
-        onFire();
+        onFireRef.current();
       }
     }
     loop();
@@ -55,9 +73,9 @@ function useDabGesture(onFire: () => void, enabled: boolean) {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [enabled, localFrameRef, onFire]);
+  }, [localFrameRef]);
 
-  return progress;
+  return enabled ? progress : 0;
 }
 
 function pad(n: number) {
