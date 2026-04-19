@@ -213,9 +213,7 @@ function DanceTile() {
       data-dance-tile={identity}
       className="relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-black"
     >
-      {isLocal && active && !meetMode && selectedTrack?.videoUrl ? (
-        <ReferenceVideoStage videoUrl={selectedTrack.videoUrl} />
-      ) : hasVideo ? (
+      {hasVideo ? (
         <div
           className="absolute inset-0 transition-[filter] duration-300"
           style={{
@@ -251,6 +249,9 @@ function DanceTile() {
             videoUrl={selectedTrack.videoUrl}
           />
         )}
+      {isLocal && active && !meetMode && selectedTrack?.videoUrl && (
+        <ReferenceVideoStage videoUrl={selectedTrack.videoUrl} />
+      )}
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
