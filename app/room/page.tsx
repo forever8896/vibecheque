@@ -28,7 +28,7 @@ import {
 import { BeatPulse } from "./BeatPulse";
 import { PoseGhostLabel } from "./PoseGhost";
 import { ChoreoOverlay } from "./ChoreoOverlay";
-import { DabOutline } from "./DabOutline";
+import { LobbyPreview } from "./LobbyPreview";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -193,7 +193,8 @@ function clamp(v: number, lo: number, hi: number) {
 
 function DanceTile() {
   const participant = useMaybeParticipantContext();
-  const { scores, phase, localFrameRef, meetMode } = useSession();
+  const { scores, phase, localFrameRef, meetMode, selectedTrackId } =
+    useSession();
   const identity = participant?.identity;
   const isLocal = participant?.isLocal ?? false;
   const score = identity ? (scores.get(identity) ?? 0) : 0;
@@ -229,9 +230,6 @@ function DanceTile() {
             <AttachedVideo publication={camPub} />
             {isLocal && showGameOverlays && <BodyAura />}
             {isLocal && active && showGameOverlays && <ChoreoOverlay />}
-            {isLocal && phase === "idle" && showGameOverlays && (
-              <DabOutline />
-            )}
           </div>
         </div>
       ) : (
@@ -244,6 +242,13 @@ function DanceTile() {
           </p>
         </div>
       )}
+      {isLocal &&
+        phase === "idle" &&
+        !meetMode &&
+        selectedTrackId &&
+        hasVideo && (
+          <LobbyPreview key={selectedTrackId} trackId={selectedTrackId} />
+        )}
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
