@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { useTracks, type TrackSummary } from "./useTracks";
-import { SwipeDetector, type SwipeDirection } from "./swipeGesture";
+import { ArmPointDetector, type ArmDirection } from "./armPointGesture";
 
 function fmtDuration(ms?: number): string {
   if (!ms || ms < 1000) return "—";
@@ -11,14 +11,22 @@ function fmtDuration(ms?: number): string {
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
-function useSwipeTrackChange(
+type PointGestureState = {
+  holding: { dir: ArmDirection; progress: number } | null;
+  flash: ArmDirection | null;
+};
+
+function usePointGestureTrackChange(
   tracks: TrackSummary[],
   selectedTrackId: string | null,
   selectTrack: (id: string) => Promise<boolean>,
   enabled: boolean,
-): SwipeDirection | null {
+): PointGestureState {
   const { localFrameRef } = useSession();
-  const [flash, setFlash] = useState<SwipeDirection | null>(null);
+  const [state, setState] = useState<PointGestureState>({
+    holding: null,
+    flash: null,
+  });
   const tracksRef = useRef(tracks);
   const selectedIdRef = useRef(selectedTrackId);
   const selectRef = useRef(selectTrack);
@@ -38,12 +46,13 @@ function useSwipeTrackChange(
   }, [enabled]);
 
   useEffect(() => {
-    const detector = new SwipeDetector();
+    const detector = new ArmPointDetector();
     let raf = 0;
     let cancelled = false;
-    let lastFire = 0;
     let flashTimer: ReturnType<typeof setTimeout> | null = null;
-    const COOLDOWN_MS = 900;
+    let lastProgress = -1;
+    let lastDir: ArmDirection | null = null;
+    let lastFlash: ArmDirection | null = null;
 
     function loop() {
       if (cancelled) return;
@@ -51,28 +60,48 @@ function useSwipeTrackChange(
       const now = performance.now();
       if (!enabledRef.current) {
         detector.reset();
+        if (lastDir !== null || lastProgress !== 0 || lastFlash !== null) {
+          lastDir = null;
+          lastProgress = 0;
+          lastFlash = null;
+          setState({ holding: null, flash: null });
+        }
         return;
       }
       const f = localFrameRef.current;
       detector.observe(f?.landmarks ?? null, now);
-      if (now - lastFire < COOLDOWN_MS) return;
 
-      const dir = detector.detect();
-      if (!dir) return;
-      lastFire = now;
+      const fired = detector.consume(now);
+      if (fired) {
+        const ts = tracksRef.current;
+        if (ts.length > 0) {
+          // Extended right (body frame) → next, extended left → previous.
+          let idx = ts.findIndex((t) => t.id === selectedIdRef.current);
+          if (idx < 0) idx = 0;
+          const delta = fired === "right" ? 1 : -1;
+          const next = ts[(idx + delta + ts.length) % ts.length];
+          void selectRef.current(next.id);
+        }
+        lastFlash = fired;
+        if (flashTimer) clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => {
+          lastFlash = null;
+          setState((s) => ({ ...s, flash: null }));
+        }, 550);
+      }
 
-      const ts = tracksRef.current;
-      if (ts.length === 0) return;
-      // Swipe right (body frame) → next track. Swipe left → previous.
-      let idx = ts.findIndex((t) => t.id === selectedIdRef.current);
-      if (idx < 0) idx = 0;
-      const delta = dir === "right" ? 1 : -1;
-      const next = ts[(idx + delta + ts.length) % ts.length];
-      void selectRef.current(next.id);
-
-      setFlash(dir);
-      if (flashTimer) clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => setFlash(null), 650);
+      const prog = detector.progress(now);
+      const dir = prog?.dir ?? null;
+      // Quantize progress to 5% steps to avoid re-renders on every rAF.
+      const quant = prog ? Math.round(prog.value * 20) / 20 : 0;
+      if (dir !== lastDir || quant !== lastProgress || fired) {
+        lastDir = dir;
+        lastProgress = quant;
+        setState({
+          holding: dir ? { dir, progress: quant } : null,
+          flash: lastFlash,
+        });
+      }
     }
     loop();
     return () => {
@@ -82,7 +111,7 @@ function useSwipeTrackChange(
     };
   }, [localFrameRef]);
 
-  return flash;
+  return state;
 }
 
 export function TrackSelector() {
@@ -181,12 +210,12 @@ export function TrackSelector() {
     throw new Error("processing timed out");
   }
 
-  const swipeEnabled = phase === "idle" && !lobbyLocked && !open;
-  const swipeFlash = useSwipeTrackChange(
+  const gestureEnabled = phase === "idle" && !lobbyLocked && !open;
+  const gesture = usePointGestureTrackChange(
     tracks,
     selectedTrackId,
     selectTrack,
-    swipeEnabled,
+    gestureEnabled,
   );
 
   const current =
@@ -203,12 +232,18 @@ export function TrackSelector() {
   return (
     <>
       <div className="pointer-events-none relative flex items-center gap-3">
-        <SwipeArrow direction="left" lit={swipeFlash === "left"} />
+        <PointArrow
+          direction="left"
+          progress={
+            gesture.holding?.dir === "left" ? gesture.holding.progress : 0
+          }
+          flash={gesture.flash === "left"}
+        />
         <button
           disabled={lobbyLocked}
           onClick={() => setOpen(true)}
           className={`pointer-events-auto flex items-center gap-3 rounded-2xl border bg-black/70 px-4 py-2 text-left font-mono backdrop-blur transition disabled:opacity-50 ${
-            swipeFlash
+            gesture.flash
               ? "border-fuchsia-400 shadow-[0_0_20px_rgba(255,77,240,0.5)]"
               : "border-white/15 hover:border-white/30"
           }`}
@@ -229,11 +264,17 @@ export function TrackSelector() {
             </span>
           </span>
         </button>
-        <SwipeArrow direction="right" lit={swipeFlash === "right"} />
+        <PointArrow
+          direction="right"
+          progress={
+            gesture.holding?.dir === "right" ? gesture.holding.progress : 0
+          }
+          flash={gesture.flash === "right"}
+        />
       </div>
-      {swipeEnabled && tracks.length > 1 && (
+      {gestureEnabled && tracks.length > 1 && (
         <p className="pointer-events-none mt-1 font-mono text-[9px] uppercase tracking-[0.3em] text-zinc-500">
-          swipe your hand ← / → to change the song
+          extend arm → next · extend arm ← previous
         </p>
       )}
 
@@ -346,20 +387,38 @@ function cryptoRandomId(): string {
   return Math.random().toString(16).slice(2, 18);
 }
 
-function SwipeArrow({
+function PointArrow({
   direction,
-  lit,
+  progress,
+  flash,
 }: {
   direction: "left" | "right";
-  lit: boolean;
+  progress: number;
+  flash: boolean;
 }) {
+  // While the player holds their arm out, the chevron lights up
+  // progressively (alpha + glow), then briefly flashes on commit.
+  const held = progress > 0;
+  const alpha = flash ? 1 : Math.max(0.3, Math.min(1, 0.3 + progress * 0.7));
+  const scale = flash ? 1.35 : 1 + progress * 0.25;
+  const glow = flash
+    ? "0 0 14px rgba(255, 77, 240, 0.9)"
+    : held
+      ? `0 0 ${Math.round(8 + progress * 10)}px rgba(34, 211, 238, ${
+          0.4 + progress * 0.5
+        })`
+      : "none";
   return (
     <span
-      className={`font-mono text-xl transition-all duration-300 ${
-        lit
-          ? "text-fuchsia-300 drop-shadow-[0_0_12px_rgba(255,77,240,0.8)] scale-125"
-          : "text-zinc-600"
-      }`}
+      aria-hidden
+      className="inline-flex items-center justify-center font-mono text-xl transition-[color,transform] duration-150"
+      style={{
+        color: flash
+          ? `rgba(255, 77, 240, ${alpha})`
+          : `rgba(34, 211, 238, ${alpha})`,
+        transform: `scale(${scale})`,
+        textShadow: glow,
+      }}
     >
       {direction === "left" ? "‹" : "›"}
     </span>
