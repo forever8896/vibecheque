@@ -93,9 +93,15 @@ export function snapshot(room: Room, now: number) {
   };
 }
 
-export function randomRoomName() {
-  return `vibecheque-${Math.random().toString(36).slice(2, 8)}`;
-}
+// One shared LiveKit room for the whole product. On Vercel every
+// serverless instance has its own rooms Map, so randomized per-instance
+// room names used to hand different players different LiveKit tokens —
+// they'd each end up alone in their own SFU room. Pinning everyone to
+// a single room name here makes sure anyone in the lobby can actually
+// see each other. The in-memory participant counter is still
+// per-instance (imperfect until we move to Redis), but the video
+// session itself is authoritative via LiveKit.
+export const SHARED_ROOM_NAME = process.env.SHARED_ROOM_NAME || "vibecheque-main";
 
 export function randomMatchId() {
   return Math.random().toString(36).slice(2, 10);
@@ -106,32 +112,25 @@ export async function findOrAssign(
   displayName: string | undefined,
 ): Promise<Room> {
   const now = Date.now();
-  for (const room of rooms.values()) {
-    const existing = room.participants.get(identity);
-    if (existing) {
-      existing.lastSeenAt = now;
-      if (displayName) existing.name = displayName;
-      return room;
-    }
+  let room = rooms.get(SHARED_ROOM_NAME);
+  if (!room) {
+    room = {
+      name: SHARED_ROOM_NAME,
+      createdAt: now,
+      participants: new Map(),
+      locked: false,
+      match: null,
+      nextMatchId: randomMatchId(),
+      selectedTrackId: await getDefaultTrackId(),
+    };
+    rooms.set(room.name, room);
   }
-  for (const room of rooms.values()) {
-    if (!room.locked && room.participants.size < ROOM_MAX) {
-      room.participants.set(identity, {
-        lastSeenAt: now,
-        name: displayName,
-      });
-      return room;
-    }
+  const existing = room.participants.get(identity);
+  if (existing) {
+    existing.lastSeenAt = now;
+    if (displayName) existing.name = displayName;
+  } else {
+    room.participants.set(identity, { lastSeenAt: now, name: displayName });
   }
-  const room: Room = {
-    name: randomRoomName(),
-    createdAt: now,
-    participants: new Map([[identity, { lastSeenAt: now, name: displayName }]]),
-    locked: false,
-    match: null,
-    nextMatchId: randomMatchId(),
-    selectedTrackId: await getDefaultTrackId(),
-  };
-  rooms.set(room.name, room);
   return room;
 }
