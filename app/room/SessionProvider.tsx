@@ -184,18 +184,28 @@ export function SessionProvider({
   } = lobby;
   const activeMatchId = match?.id ?? null;
 
-  // LiveKitRoom video/audio props sometimes don't auto-publish reliably.
-  // Force-enable camera+mic once we're connected.
+  // LiveKitRoom video prop sometimes doesn't auto-publish reliably.
+  // Force-enable camera once we're connected. Microphone stays off
+  // until the user opts into meet mode — the browser mic prompt
+  // shouldn't fire just from entering the dance floor.
   useEffect(() => {
     if (!room || !localParticipant) return;
     if (room.state !== ConnectionState.Connected) return;
     localParticipant
       .setCameraEnabled(true)
       .catch((e) => console.warn("[room] enable camera", e));
-    localParticipant
-      .setMicrophoneEnabled(true)
-      .catch((e) => console.warn("[room] enable mic", e));
   }, [room, localParticipant, room?.state]);
+
+  // Toggle the mic alongside meet mode: request permission + publish
+  // when entering, mute when leaving, so voice is only live in the
+  // chill room.
+  useEffect(() => {
+    if (!room || !localParticipant) return;
+    if (room.state !== ConnectionState.Connected) return;
+    localParticipant
+      .setMicrophoneEnabled(meetMode)
+      .catch((e) => console.warn("[room] toggle mic", e));
+  }, [room, localParticipant, room?.state, meetMode]);
 
   // Resolve the local camera MediaStreamTrack
   const [localTrack, setLocalTrack] = useState<MediaStreamTrack | null>(null);

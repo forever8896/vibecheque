@@ -478,7 +478,7 @@ export default function RoomPage() {
         serverUrl={wsUrl}
         connect
         video
-        audio
+        audio={false}
         data-lk-theme="default"
         className="flex-1"
       >
