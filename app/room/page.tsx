@@ -26,6 +26,7 @@ import {
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
 import { LobbyPreview } from "./LobbyPreview";
+import { PlayerSkeletonOverlay } from "./PlayerSkeletonOverlay";
 import { ReferenceVideoStage } from "./ReferenceVideoStage";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
@@ -252,6 +253,11 @@ function DanceTile() {
       {isLocal && active && !meetMode && selectedTrack?.videoUrl && (
         <ReferenceVideoStage videoUrl={selectedTrack.videoUrl} />
       )}
+      {isLocal &&
+        !meetMode &&
+        (phase === "idle" || active) &&
+        selectedTrack?.videoUrl &&
+        hasVideo && <PlayerSkeletonOverlay graded={active} />}
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
