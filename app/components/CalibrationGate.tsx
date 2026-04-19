@@ -28,11 +28,11 @@ const MODEL_URL =
 // All thresholds in normalized source-video coords
 const MIN_TORSO_HEIGHT = 0.14;
 const MAX_TORSO_HEIGHT = 0.55;
-const CENTER_TOLERANCE = 0.15;
-const ARM_H_MIN = 0.22; // wrist must reach this far horizontally from shoulder
-const ARM_V_MAX = 0.04; // wrists must be within ±4% frame-height of shoulder Y
-const ELBOW_V_MAX = 0.05; // elbows must also be at shoulder height
-const SHOULDER_LEVEL_MAX = 0.04; // shoulder line must be horizontal
+const CENTER_TOLERANCE = 0.2;
+const ARM_H_MIN = 0.18; // wrist reaches this far horizontally from shoulder
+const ARM_V_MAX = 0.08; // wrists within ±8% frame-height of shoulder Y
+const ELBOW_V_MAX = 0.09; // elbows also roughly at shoulder height
+const SHOULDER_LEVEL_MAX = 0.06; // shoulder line must be roughly horizontal
 const HOLD_FRAMES = 25;
 
 function assessPose(lm: NormalizedLandmark[]): {
@@ -71,10 +71,10 @@ function assessPose(lm: NormalizedLandmark[]): {
   const rightElbowDx = rs && re ? rs.x - re.x : 0;
   const rightElbowDy = re ? Math.abs(re.y - shoulderY) : 1;
   const jointsVisible =
-    (lw?.visibility ?? 0) > 0.5 &&
-    (rw?.visibility ?? 0) > 0.5 &&
-    (le?.visibility ?? 0) > 0.5 &&
-    (re?.visibility ?? 0) > 0.5;
+    (lw?.visibility ?? 0) > 0.4 &&
+    (rw?.visibility ?? 0) > 0.4 &&
+    (le?.visibility ?? 0) > 0.4 &&
+    (re?.visibility ?? 0) > 0.4;
   const shouldersLevel =
     ls && rs ? Math.abs(ls.y - rs.y) < SHOULDER_LEVEL_MAX : false;
   const armsOut =
