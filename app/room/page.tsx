@@ -22,11 +22,9 @@ import {
   BodyAura,
   FlowPill,
   PlayerTint,
-  ScoreCallouts,
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
-import { PoseGhostLabel } from "./PoseGhost";
 import { ChoreoOverlay } from "./ChoreoOverlay";
 import { LobbyPreview } from "./LobbyPreview";
 import { MatchHUD } from "./MatchHUD";
@@ -255,8 +253,6 @@ function DanceTile() {
       {showGameOverlays && (
         <>
           <PlayerTint identity={identity} active={active} />
-          {isLocal && (phase === "idle" || active) && <PoseGhostLabel />}
-          {isLocal && <ScoreCallouts />}
           <ScoreOverlay />
           <FlowPill identity={identity} />
         </>

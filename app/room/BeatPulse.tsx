@@ -8,7 +8,6 @@ import { beatState } from "./beats";
 // touch React state so the beat doesn't cause tree re-renders.
 export function BeatPulse() {
   const ringRef = useRef<HTMLDivElement>(null);
-  const bpmRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let rafId = 0;
@@ -31,11 +30,6 @@ export function BeatPulse() {
       const alpha = 0.12 + punch * 0.55;
       ring.style.boxShadow = `inset 0 0 ${size.toFixed(0)}px rgba(255, 77, 240, ${alpha.toFixed(3)})`;
       ring.style.opacity = beatState.isActive ? "1" : "0";
-
-      const bpm = bpmRef.current;
-      if (bpm && beatState.isActive) {
-        bpm.textContent = beatState.bpm ? `${beatState.bpm} BPM` : "";
-      }
     }
     loop();
 
@@ -46,15 +40,9 @@ export function BeatPulse() {
   }, []);
 
   return (
-    <>
-      <div
-        ref={ringRef}
-        className="pointer-events-none fixed inset-0 z-[45] transition-opacity duration-300"
-      />
-      <span
-        ref={bpmRef}
-        className="pointer-events-none fixed right-3 top-3 z-[46] font-mono text-[10px] uppercase tracking-widest text-fuchsia-300/80"
-      />
-    </>
+    <div
+      ref={ringRef}
+      className="pointer-events-none fixed inset-0 z-[45] transition-opacity duration-300"
+    />
   );
 }
