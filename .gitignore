@@ -46,3 +46,7 @@ next-env.d.ts
 
 # MediaPipe model downloaded by the extractor script (5.6 MB, fetch with curl)
 /scripts/models/
+
+# /api/track-upload writes uploaded video here before handing it to the
+# ingest script; cleaned up after each request, but never commit stragglers.
+/.uploads/

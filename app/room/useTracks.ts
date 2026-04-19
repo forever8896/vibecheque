@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type TrackSummary = {
   id: string;
@@ -9,11 +9,19 @@ export type TrackSummary = {
   durationMs?: number;
   frames?: number;
   source?: string;
+  hasVideo?: boolean;
 };
 
-export function useTracks(): { tracks: TrackSummary[]; ready: boolean } {
+export function useTracks(): {
+  tracks: TrackSummary[];
+  ready: boolean;
+  refetch: () => void;
+} {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [ready, setReady] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  const refetch = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +41,7 @@ export function useTracks(): { tracks: TrackSummary[]; ready: boolean } {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
-  return { tracks, ready };
+  return { tracks, ready, refetch };
 }

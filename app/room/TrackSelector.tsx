@@ -87,8 +87,65 @@ function useSwipeTrackChange(
 
 export function TrackSelector() {
   const { selectedTrackId, selectTrack, lobbyLocked, phase } = useSession();
-  const { tracks, ready } = useTracks();
+  const { tracks, ready, refetch } = useTracks();
   const [open, setOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadElapsed, setUploadElapsed] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!uploading) return;
+    const started = performance.now();
+    const id = setInterval(() => {
+      setUploadElapsed(Math.floor((performance.now() - started) / 1000));
+    }, 500);
+    return () => clearInterval(id);
+  }, [uploading]);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so re-picking the same file still fires
+    if (!file) return;
+
+    const defaultTitle = file.name.replace(/\.[^.]+$/, "");
+    const title = window.prompt("Name this dance", defaultTitle);
+    if (title == null) return;
+    const clean = title.trim();
+    if (!clean) return;
+
+    setUploadElapsed(0);
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("video", file);
+      form.append("title", clean);
+      const res = await fetch("/api/track-upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        trackId?: string;
+        error?: string;
+        detail?: string;
+      };
+      if (!res.ok || !data.ok || !data.trackId) {
+        throw new Error(data.error || `upload failed (${res.status})`);
+      }
+      refetch();
+      // index.json just got rewritten on disk; give next.js a beat to
+      // serve the fresh file before we ask for it again via selectTrack.
+      await new Promise((r) => setTimeout(r, 300));
+      const ok = await selectTrack(data.trackId);
+      if (ok) setOpen(false);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const swipeEnabled = phase === "idle" && !lobbyLocked && !open;
   const swipeFlash = useSwipeTrackChange(
@@ -213,9 +270,33 @@ export function TrackSelector() {
                 );
               })}
             </div>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-              add more · scripts/ingest-track.sh &lt;url&gt;
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-4 py-1.5 font-mono text-[11px] uppercase tracking-widest text-fuchsia-100 transition hover:bg-fuchsia-500/30 disabled:opacity-60"
+              >
+                {uploading
+                  ? `processing… ${uploadElapsed}s`
+                  : "+ upload your dance"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/*"
+                className="hidden"
+                onChange={handleUpload}
+              />
+              {uploadError ? (
+                <span className="font-mono text-[10px] text-rose-300">
+                  {uploadError}
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+                  mp4 · we extract audio + pose skeleton (~30s)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
