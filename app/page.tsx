@@ -42,21 +42,9 @@ export default function Home() {
       )}
       {step === "calibration" && <CalibrationGate onReady={onCalibrated} />}
 
-      <main className="pointer-events-none relative z-20 flex flex-1 flex-col items-center justify-between px-6 py-14 text-center">
-        <div className="pointer-events-auto flex flex-col items-center gap-1">
-          <p className="font-mono text-[10px] uppercase tracking-[0.5em] text-fuchsia-300/80">
-            ETHSilesia · 2026
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-white drop-shadow-[0_2px_20px_rgba(0,0,0,0.9)] md:text-4xl">
-            Vibe<span className="text-fuchsia-400">Cheque</span>
-          </h1>
-        </div>
-
+      <main className="pointer-events-none relative z-20 flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
         {step === "sunglasses" && (
           <div className="pointer-events-auto flex flex-col items-center gap-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.4em] text-fuchsia-300/80">
-              step 1 · gate
-            </p>
             <h2
               className={`font-mono text-3xl font-semibold uppercase leading-tight tracking-[0.18em] transition-all duration-500 md:text-5xl lg:text-6xl ${
                 gatePassed
@@ -77,8 +65,6 @@ export default function Home() {
             entering the floor…
           </p>
         )}
-
-        <div className="h-6" />
       </main>
     </>
   );

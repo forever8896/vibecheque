@@ -290,9 +290,6 @@ export function CalibrationGate({ onReady }: { onReady: () => void }) {
       />
 
       <div className="pointer-events-none fixed inset-x-0 top-10 z-30 flex flex-col items-center gap-3 px-4 text-center">
-        <p className="font-mono text-[10px] uppercase tracking-[0.4em] text-fuchsia-300/80">
-          step 2 · calibration
-        </p>
         <h2
           className={`font-mono font-semibold uppercase leading-tight transition-all duration-500 ${
             status === "ready"
