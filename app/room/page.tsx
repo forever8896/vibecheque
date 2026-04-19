@@ -25,8 +25,8 @@ import {
   tileVideoFilter,
 } from "./BodyFX";
 import { BeatPulse } from "./BeatPulse";
-import { ChoreoOverlay } from "./ChoreoOverlay";
 import { LobbyPreview } from "./LobbyPreview";
+import { ReferenceVideoStage } from "./ReferenceVideoStage";
 import { MatchHUD } from "./MatchHUD";
 import { SessionProvider, useSession } from "./SessionProvider";
 import { SyncedMusic } from "./SyncedMusic";
@@ -213,7 +213,9 @@ function DanceTile() {
       data-dance-tile={identity}
       className="relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-black"
     >
-      {hasVideo ? (
+      {isLocal && active && !meetMode && selectedTrack?.videoUrl ? (
+        <ReferenceVideoStage videoUrl={selectedTrack.videoUrl} />
+      ) : hasVideo ? (
         <div
           className="absolute inset-0 transition-[filter] duration-300"
           style={{
@@ -227,7 +229,6 @@ function DanceTile() {
           >
             <AttachedVideo publication={camPub} />
             {isLocal && showGameOverlays && <BodyAura />}
-            {isLocal && active && showGameOverlays && <ChoreoOverlay />}
           </div>
         </div>
       ) : (
