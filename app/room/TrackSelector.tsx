@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "./SessionProvider";
 import { useTracks, type TrackSummary } from "./useTracks";
+import { SwipeDetector, type SwipeDirection } from "./swipeGesture";
 
 function fmtDuration(ms?: number): string {
   if (!ms || ms < 1000) return "—";
@@ -10,10 +11,92 @@ function fmtDuration(ms?: number): string {
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
+function useSwipeTrackChange(
+  tracks: TrackSummary[],
+  selectedTrackId: string | null,
+  selectTrack: (id: string) => Promise<boolean>,
+  enabled: boolean,
+): SwipeDirection | null {
+  const { localFrameRef } = useSession();
+  const [flash, setFlash] = useState<SwipeDirection | null>(null);
+  const tracksRef = useRef(tracks);
+  const selectedIdRef = useRef(selectedTrackId);
+  const selectRef = useRef(selectTrack);
+  const enabledRef = useRef(enabled);
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+  useEffect(() => {
+    selectedIdRef.current = selectedTrackId;
+  }, [selectedTrackId]);
+  useEffect(() => {
+    selectRef.current = selectTrack;
+  }, [selectTrack]);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  useEffect(() => {
+    const detector = new SwipeDetector();
+    let raf = 0;
+    let cancelled = false;
+    let lastFire = 0;
+    let flashTimer: ReturnType<typeof setTimeout> | null = null;
+    const COOLDOWN_MS = 900;
+
+    function loop() {
+      if (cancelled) return;
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      if (!enabledRef.current) {
+        detector.reset();
+        return;
+      }
+      const f = localFrameRef.current;
+      detector.observe(f?.landmarks ?? null, now);
+      if (now - lastFire < COOLDOWN_MS) return;
+
+      const dir = detector.detect();
+      if (!dir) return;
+      lastFire = now;
+
+      const ts = tracksRef.current;
+      if (ts.length === 0) return;
+      // Swipe right (body frame) → next track. Swipe left → previous.
+      let idx = ts.findIndex((t) => t.id === selectedIdRef.current);
+      if (idx < 0) idx = 0;
+      const delta = dir === "right" ? 1 : -1;
+      const next = ts[(idx + delta + ts.length) % ts.length];
+      void selectRef.current(next.id);
+
+      setFlash(dir);
+      if (flashTimer) clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => setFlash(null), 650);
+    }
+    loop();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      if (flashTimer) clearTimeout(flashTimer);
+    };
+  }, [localFrameRef]);
+
+  return flash;
+}
+
 export function TrackSelector() {
-  const { selectedTrackId, selectTrack, lobbyLocked } = useSession();
+  const { selectedTrackId, selectTrack, lobbyLocked, phase } = useSession();
   const { tracks, ready } = useTracks();
   const [open, setOpen] = useState(false);
+
+  const swipeEnabled = phase === "idle" && !lobbyLocked && !open;
+  const swipeFlash = useSwipeTrackChange(
+    tracks,
+    selectedTrackId,
+    selectTrack,
+    swipeEnabled,
+  );
 
   const current =
     tracks.find((t) => t.id === selectedTrackId) ??
@@ -28,27 +111,40 @@ export function TrackSelector() {
 
   return (
     <>
-      <button
-        disabled={lobbyLocked}
-        onClick={() => setOpen(true)}
-        className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-white/15 bg-black/70 px-4 py-2 text-left font-mono backdrop-blur transition hover:border-white/30 disabled:opacity-50"
-      >
-        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-fuchsia-400/50 bg-fuchsia-500/20 text-fuchsia-200">
-          ♫
-        </span>
-        <span className="flex flex-col">
-          <span className="text-[9px] uppercase tracking-[0.3em] text-fuchsia-300">
-            track · {tracks.length || "loading"}
+      <div className="pointer-events-none relative flex items-center gap-3">
+        <SwipeArrow direction="left" lit={swipeFlash === "left"} />
+        <button
+          disabled={lobbyLocked}
+          onClick={() => setOpen(true)}
+          className={`pointer-events-auto flex items-center gap-3 rounded-2xl border bg-black/70 px-4 py-2 text-left font-mono backdrop-blur transition disabled:opacity-50 ${
+            swipeFlash
+              ? "border-fuchsia-400 shadow-[0_0_20px_rgba(255,77,240,0.5)]"
+              : "border-white/15 hover:border-white/30"
+          }`}
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-fuchsia-400/50 bg-fuchsia-500/20 text-fuchsia-200">
+            ♫
           </span>
-          <span className="max-w-[230px] truncate text-sm text-white">
-            {current?.title || "pick a dance"}
+          <span className="flex flex-col">
+            <span className="text-[9px] uppercase tracking-[0.3em] text-fuchsia-300">
+              track · {tracks.length || "loading"}
+            </span>
+            <span className="max-w-[230px] truncate text-sm text-white">
+              {current?.title || "pick a dance"}
+            </span>
+            <span className="text-[10px] uppercase tracking-widest text-zinc-400">
+              {fmtDuration(current?.durationMs)}
+              {current?.uploader ? ` · ${current.uploader}` : ""}
+            </span>
           </span>
-          <span className="text-[10px] uppercase tracking-widest text-zinc-400">
-            {fmtDuration(current?.durationMs)}
-            {current?.uploader ? ` · ${current.uploader}` : ""}
-          </span>
-        </span>
-      </button>
+        </button>
+        <SwipeArrow direction="right" lit={swipeFlash === "right"} />
+      </div>
+      {swipeEnabled && tracks.length > 1 && (
+        <p className="pointer-events-none mt-1 font-mono text-[9px] uppercase tracking-[0.3em] text-zinc-500">
+          swipe your hand ← / → to change the song
+        </p>
+      )}
 
       {open && (
         <div className="pointer-events-auto fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-md p-6">
@@ -124,5 +220,25 @@ export function TrackSelector() {
         </div>
       )}
     </>
+  );
+}
+
+function SwipeArrow({
+  direction,
+  lit,
+}: {
+  direction: "left" | "right";
+  lit: boolean;
+}) {
+  return (
+    <span
+      className={`font-mono text-xl transition-all duration-300 ${
+        lit
+          ? "text-fuchsia-300 drop-shadow-[0_0_12px_rgba(255,77,240,0.8)] scale-125"
+          : "text-zinc-600"
+      }`}
+    >
+      {direction === "left" ? "‹" : "›"}
+    </span>
   );
 }
