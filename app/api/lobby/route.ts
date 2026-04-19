@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!identity) {
     return NextResponse.json({ error: "identity required" }, { status: 400 });
   }
-  const room = findOrAssign(identity, displayName);
+  const room = await findOrAssign(identity, displayName);
   return NextResponse.json(snapshot(room, Date.now()));
 }
 

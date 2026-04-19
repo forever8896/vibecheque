@@ -4,24 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import type { Match, MatchPhase } from "./useLobby";
 import { useAudioBeats } from "./beats";
 
-// Each track ships audio under /tracks/<id>/audio.mp3
+// Each track ships audio at an absolute URL resolved by the tracks store.
 export function SyncedMusic({
   match,
   phase,
   secondsElapsed,
-  trackId,
+  audioUrl,
 }: {
   match: Match | null;
   phase: MatchPhase;
   secondsElapsed: number;
-  trackId: string | null;
+  audioUrl: string | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const [needsGesture, setNeedsGesture] = useState(false);
   const [missing, setMissing] = useState(false);
 
-  const src = trackId ? `/tracks/${trackId}/audio.mp3` : "";
+  const src = audioUrl ?? "";
 
   // Kick off beat detection against the live <audio> element
   useAudioBeats(audioEl);

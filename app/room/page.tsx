@@ -193,7 +193,7 @@ function clamp(v: number, lo: number, hi: number) {
 
 function DanceTile() {
   const participant = useMaybeParticipantContext();
-  const { scores, phase, localFrameRef, meetMode, selectedTrackId } =
+  const { scores, phase, localFrameRef, meetMode, selectedTrack } =
     useSession();
   const identity = participant?.identity;
   const isLocal = participant?.isLocal ?? false;
@@ -245,9 +245,12 @@ function DanceTile() {
       {isLocal &&
         phase === "idle" &&
         !meetMode &&
-        selectedTrackId &&
+        selectedTrack?.videoUrl &&
         hasVideo && (
-          <LobbyPreview key={selectedTrackId} trackId={selectedTrackId} />
+          <LobbyPreview
+            key={selectedTrack.videoUrl}
+            videoUrl={selectedTrack.videoUrl}
+          />
         )}
       {showGameOverlays && (
         <>
@@ -350,7 +353,7 @@ function Stage() {
 }
 
 function RoomInner() {
-  const { match, phase, secondsElapsed, roomName, meetMode, selectedTrackId } =
+  const { match, phase, secondsElapsed, roomName, meetMode, selectedTrack } =
     useSession();
   return (
     <div className="fixed inset-0 flex flex-col bg-black">
@@ -371,7 +374,7 @@ function RoomInner() {
         match={match}
         phase={phase}
         secondsElapsed={secondsElapsed}
-        trackId={selectedTrackId}
+        audioUrl={selectedTrack?.audioUrl ?? null}
       />
       {!meetMode && <BeatPulse />}
     </div>

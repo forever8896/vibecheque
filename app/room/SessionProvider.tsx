@@ -31,6 +31,7 @@ import {
   type Choreo,
 } from "./choreography";
 import type { PoseTarget } from "./poseLibrary";
+import { useTracks, type TrackSummary } from "./useTracks";
 
 type Session = {
   scores: Map<string, number>;
@@ -53,6 +54,7 @@ type Session = {
   nextMatchId: string | null;
   activeMatchId: string | null;
   selectedTrackId: string | null;
+  selectedTrack: TrackSummary | null;
   selectTrack: (trackId: string) => Promise<boolean>;
   meetMode: boolean;
   enterMeet: () => void;
@@ -85,6 +87,7 @@ const SessionContext = createContext<Session>({
   nextMatchId: null,
   activeMatchId: null,
   selectedTrackId: null,
+  selectedTrack: null,
   selectTrack: async () => false,
   meetMode: false,
   enterMeet: () => {},
@@ -220,20 +223,29 @@ export function SessionProvider({
   // don't force the scorer onto a DAB target here.
   const forcedTargetName: string | null = null;
 
+  // Resolve the full track record from the tracks store — gives us
+  // per-track URLs (videoUrl/audioUrl/choreoUrl) the consumers need.
+  const { tracks: allTracks } = useTracks();
+  const selectedTrack = useMemo(
+    () => allTracks.find((t) => t.id === selectedTrackId) ?? null,
+    [allTracks, selectedTrackId],
+  );
+  const selectedChoreoUrl = selectedTrack?.choreoUrl ?? null;
+
   // Load choreography JSON for the currently-selected track; refresh when
   // the selection changes so ChoreoOverlay + scorer pick up the swap.
   const choreoRef = useRef<Choreo | null>(null);
   useEffect(() => {
     choreoRef.current = null;
-    if (!selectedTrackId) return;
+    if (!selectedChoreoUrl) return;
     let cancelled = false;
-    void loadChoreo(selectedTrackId).then((c) => {
+    void loadChoreo(selectedChoreoUrl).then((c) => {
       if (!cancelled) choreoRef.current = c;
     });
     return () => {
       cancelled = true;
     };
-  }, [selectedTrackId]);
+  }, [selectedChoreoUrl]);
 
   // Match start time (perf-now scale) so the choreography stays aligned
   const matchStartPerfRef = useRef<number | null>(null);
@@ -447,6 +459,7 @@ export function SessionProvider({
       nextMatchId,
       activeMatchId,
       selectedTrackId,
+      selectedTrack,
       selectTrack,
       meetMode,
       enterMeet,
@@ -473,6 +486,7 @@ export function SessionProvider({
       nextMatchId,
       activeMatchId,
       selectedTrackId,
+      selectedTrack,
       selectTrack,
       meetMode,
       enterMeet,

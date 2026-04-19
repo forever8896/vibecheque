@@ -23,34 +23,34 @@ const cache = new Map<string, Choreo>();
 const inFlight = new Map<string, Promise<Choreo | null>>();
 
 export async function loadChoreo(
-  trackId: string | null,
+  choreoUrl: string | null,
 ): Promise<Choreo | null> {
-  if (!trackId) return null;
-  const cached = cache.get(trackId);
+  if (!choreoUrl) return null;
+  const cached = cache.get(choreoUrl);
   if (cached) return cached;
-  const pending = inFlight.get(trackId);
+  const pending = inFlight.get(choreoUrl);
   if (pending) return pending;
-  const p = fetch(`/tracks/${trackId}/choreo.json`, { cache: "force-cache" })
+  const p = fetch(choreoUrl, { cache: "force-cache" })
     .then((r) => (r.ok ? (r.json() as Promise<Choreo>) : null))
     .then((c) => {
       if (c && c.frames && c.frames.length > 0) {
-        cache.set(trackId, c);
+        cache.set(choreoUrl, c);
         console.log(
-          `[choreo] loaded ${trackId}: ${c.frameCount} frames / ${c.durationMs}ms`,
+          `[choreo] loaded ${choreoUrl}: ${c.frameCount} frames / ${c.durationMs}ms`,
         );
         return c;
       }
-      console.warn(`[choreo] /tracks/${trackId}/choreo.json missing or empty`);
+      console.warn(`[choreo] ${choreoUrl} missing or empty`);
       return null;
     })
     .catch((e) => {
-      console.warn(`[choreo] fetch failed for ${trackId}`, e);
+      console.warn(`[choreo] fetch failed for ${choreoUrl}`, e);
       return null;
     })
     .finally(() => {
-      inFlight.delete(trackId);
+      inFlight.delete(choreoUrl);
     });
-  inFlight.set(trackId, p);
+  inFlight.set(choreoUrl, p);
   return p;
 }
 

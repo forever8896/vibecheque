@@ -31,30 +31,28 @@ const g = globalThis as unknown as { __vibecheque_rooms?: Map<string, Room> };
 export const rooms: Map<string, Room> =
   g.__vibecheque_rooms ?? (g.__vibecheque_rooms = new Map());
 
-// Read tracks/index.json once per process to find the default track id
+// Async default-track lookup — reads from the tracks store (Redis or
+// filesystem fallback). Memoized per process, refreshed after TTL so an
+// ingest completing after boot still picks up a new default eventually.
 let defaultTrackId: string | null | undefined;
-export function getDefaultTrackId(): string | null {
-  if (defaultTrackId !== undefined) return defaultTrackId;
-  try {
-    // Lazy require to avoid pulling fs into edge builds
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const fs = require("fs") as typeof import("fs");
-    const path = require("path") as typeof import("path");
-    /* eslint-enable @typescript-eslint/no-require-imports */
-    const indexPath = path.join(
-      process.cwd(),
-      "public",
-      "tracks",
-      "index.json",
-    );
-    const raw = fs.readFileSync(indexPath, "utf8");
-    const parsed = JSON.parse(raw) as { tracks?: Array<{ id: string }> };
-    defaultTrackId = parsed.tracks?.[0]?.id ?? null;
+let defaultTrackAt = 0;
+const DEFAULT_TTL_MS = 30_000;
+
+export async function getDefaultTrackId(): Promise<string | null> {
+  const now = Date.now();
+  if (defaultTrackId !== undefined && now - defaultTrackAt < DEFAULT_TTL_MS) {
     return defaultTrackId;
+  }
+  try {
+    const { listTracks } = await import("@/lib/tracksStore");
+    const tracks = await listTracks();
+    const ready = tracks.find((t) => t.status === "ready") ?? tracks[0];
+    defaultTrackId = ready?.id ?? null;
   } catch {
     defaultTrackId = null;
-    return null;
   }
+  defaultTrackAt = now;
+  return defaultTrackId;
 }
 
 export function prune(now: number = Date.now()) {
@@ -103,10 +101,10 @@ export function randomMatchId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function findOrAssign(
+export async function findOrAssign(
   identity: string,
   displayName: string | undefined,
-): Room {
+): Promise<Room> {
   const now = Date.now();
   for (const room of rooms.values()) {
     const existing = room.participants.get(identity);
@@ -132,7 +130,7 @@ export function findOrAssign(
     locked: false,
     match: null,
     nextMatchId: randomMatchId(),
-    selectedTrackId: getDefaultTrackId(),
+    selectedTrackId: await getDefaultTrackId(),
   };
   rooms.set(room.name, room);
   return room;

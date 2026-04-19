@@ -118,33 +118,67 @@ export function TrackSelector() {
     setUploadError(null);
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append("video", file);
-      form.append("title", clean);
-      const res = await fetch("/api/track-upload", {
-        method: "POST",
-        body: form,
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        trackId?: string;
-        error?: string;
-        detail?: string;
-      };
-      if (!res.ok || !data.ok || !data.trackId) {
-        throw new Error(data.error || `upload failed (${res.status})`);
-      }
+      const cfg = await fetch("/api/config", { cache: "no-store" })
+        .then((r) => r.json())
+        .catch(() => ({ cloudUploads: false }));
+      const trackId = cfg.cloudUploads
+        ? await uploadCloud(file, clean)
+        : await uploadLocal(file, clean);
       refetch();
-      // index.json just got rewritten on disk; give next.js a beat to
-      // serve the fresh file before we ask for it again via selectTrack.
       await new Promise((r) => setTimeout(r, 300));
-      const ok = await selectTrack(data.trackId);
+      const ok = await selectTrack(trackId);
       if (ok) setOpen(false);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
     }
+  }
+
+  async function uploadLocal(file: File, title: string): Promise<string> {
+    const form = new FormData();
+    form.append("video", file);
+    form.append("title", title);
+    const res = await fetch("/api/track-upload", {
+      method: "POST",
+      body: form,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      trackId?: string;
+      error?: string;
+    };
+    if (!res.ok || !data.ok || !data.trackId) {
+      throw new Error(data.error || `upload failed (${res.status})`);
+    }
+    return data.trackId;
+  }
+
+  async function uploadCloud(file: File, title: string): Promise<string> {
+    const { upload } = await import("@vercel/blob/client");
+    const trackId = cryptoRandomId();
+    const pathname = `uploads/${trackId}.mp4`;
+    await upload(pathname, file, {
+      access: "public",
+      handleUploadUrl: "/api/track-upload-cloud",
+      clientPayload: JSON.stringify({ trackId, title }),
+    });
+    // onUploadCompleted fires on Vercel asynchronously — poll the store
+    // until the worker flips status to "ready" (or "failed").
+    const deadline = Date.now() + 8 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const res = await fetch("/api/tracks", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({ tracks: [] }))) as {
+        tracks: TrackSummary[];
+      };
+      const match = data.tracks.find((t) => t.id === trackId);
+      if (match?.status === "ready") return trackId;
+      if (match?.status === "failed") {
+        throw new Error(match.error || "ingest failed");
+      }
+    }
+    throw new Error("processing timed out");
   }
 
   const swipeEnabled = phase === "idle" && !lobbyLocked && !open;
@@ -245,7 +279,7 @@ export function TrackSelector() {
                     }`}
                   >
                     <img
-                      src={`/tracks/${t.id}/cover.jpg`}
+                      src={t.coverUrl || ""}
                       alt=""
                       className="h-16 w-16 flex-shrink-0 rounded-lg border border-white/10 bg-black object-cover"
                       onError={(e) => {
@@ -302,6 +336,14 @@ export function TrackSelector() {
       )}
     </>
   );
+}
+
+function cryptoRandomId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  }
+  // fallback for the rare no-crypto browser
+  return Math.random().toString(16).slice(2, 18);
 }
 
 function SwipeArrow({

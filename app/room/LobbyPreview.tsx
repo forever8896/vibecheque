@@ -8,12 +8,12 @@ import { useEffect, useRef, useState } from "react";
 // movement. Sibling of the mirror-wrapper in DanceTile so the reference
 // dance is shown un-flipped (unlike the webcam, which is mirrored).
 
-export function LobbyPreview({ trackId }: { trackId: string }) {
-  // Parent keys this component by trackId, so state resets on swap.
+export function LobbyPreview({ videoUrl }: { videoUrl: string }) {
+  // Parent keys this component by videoUrl, so state resets on swap.
   const videoRef = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
   const [failed, setFailed] = useState(false);
-  const src = `/tracks/${trackId}/video.mp4`;
+  const src = videoUrl;
 
   useEffect(() => {
     const v = videoRef.current;

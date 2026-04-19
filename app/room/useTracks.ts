@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+export type TrackStatus =
+  | "uploading"
+  | "queued"
+  | "processing"
+  | "ready"
+  | "failed";
+
 export type TrackSummary = {
   id: string;
   title: string;
@@ -9,7 +16,14 @@ export type TrackSummary = {
   durationMs?: number;
   frames?: number;
   source?: string;
-  hasVideo?: boolean;
+  status: TrackStatus;
+  error?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  choreoUrl?: string;
+  coverUrl?: string;
+  createdAt?: number;
+  readyAt?: number;
 };
 
 export function useTracks(): {
@@ -25,7 +39,7 @@ export function useTracks(): {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/tracks/index.json", { cache: "no-store" })
+    fetch("/api/tracks", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { tracks: [] }))
       .then((data) => {
         if (cancelled) return;
