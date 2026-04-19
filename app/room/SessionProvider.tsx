@@ -184,16 +184,47 @@ export function SessionProvider({
   } = lobby;
   const activeMatchId = match?.id ?? null;
 
-  // LiveKitRoom video prop sometimes doesn't auto-publish reliably.
-  // Force-enable camera once we're connected. Microphone stays off
-  // until the user opts into meet mode — the browser mic prompt
-  // shouldn't fire just from entering the dance floor.
+  // Camera enable with retry. Once we're connected, attempt to publish
+  // the camera track. If the publish fails (transient getUserMedia
+  // contention, network blip, race with reconnect), back off and try
+  // again up to a few times so a late camera share still works. We do
+  // NOT touch the mic here — it only comes up when the user opts into
+  // meet mode below, so the browser never prompts for a mic on the
+  // dance floor.
   useEffect(() => {
     if (!room || !localParticipant) return;
     if (room.state !== ConnectionState.Connected) return;
-    localParticipant
-      .setCameraEnabled(true)
-      .catch((e) => console.warn("[room] enable camera", e));
+    let cancelled = false;
+    let attempt = 0;
+    const MAX_ATTEMPTS = 4;
+    const tryEnable = async () => {
+      if (cancelled) return;
+      const pub = localParticipant.getTrackPublication(Track.Source.Camera);
+      if (pub?.track && !pub.isMuted) {
+        return; // already live
+      }
+      try {
+        await localParticipant.setCameraEnabled(true);
+      } catch (e) {
+        console.warn(
+          `[room] enable camera attempt ${attempt + 1} failed`,
+          e,
+        );
+      }
+      attempt++;
+      if (cancelled) return;
+      const pub2 = localParticipant.getTrackPublication(Track.Source.Camera);
+      if (pub2?.track) return;
+      if (attempt < MAX_ATTEMPTS) {
+        setTimeout(tryEnable, 500 + attempt * 1000);
+      } else {
+        console.error("[room] camera enable gave up after retries");
+      }
+    };
+    void tryEnable();
+    return () => {
+      cancelled = true;
+    };
   }, [room, localParticipant, room?.state]);
 
   // Toggle the mic alongside meet mode: request permission + publish

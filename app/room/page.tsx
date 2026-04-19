@@ -485,8 +485,20 @@ export default function RoomPage() {
         token={token}
         serverUrl={wsUrl}
         connect
-        video
+        video={false}
         audio={false}
+        options={{
+          // Keep remote webcam tracks subscribed even when they're
+          // visually occluded by the reference-video stage during play.
+          // Adaptive stream's IntersectionObserver-based auto-pause
+          // can freeze camera sharing for players whose tiles are
+          // covered.
+          adaptiveStream: false,
+          dynacast: false,
+          publishDefaults: {
+            simulcast: false,
+          },
+        }}
         data-lk-theme="default"
         className="flex-1"
       >
