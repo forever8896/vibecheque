@@ -423,10 +423,20 @@ export function SessionProvider({
     };
   }, [room, ingestBroadcast]);
 
-  // Wrap startMatch to also broadcast to peers
+  // Wrap startMatch to also broadcast to peers. Default the match
+  // duration to the full selected track (+ 500 ms of grace so the
+  // final beat doesn't get clipped by clock jitter), falling back to
+  // the server's 45 s default when no explicit duration is passed
+  // and no track has a known duration yet.
+  const selectedTrackDurationMs = selectedTrack?.durationMs;
   const startMatch = useCallback(
     async (duration?: number) => {
-      const m = await startMatchBase(duration);
+      const effective =
+        duration ??
+        (selectedTrackDurationMs && selectedTrackDurationMs > 1000
+          ? selectedTrackDurationMs + 500
+          : undefined);
+      const m = await startMatchBase(effective);
       if (m && localParticipant && room?.state === ConnectionState.Connected) {
         const msg: WireMessage = {
           type: "match",
@@ -444,7 +454,7 @@ export function SessionProvider({
       }
       return m;
     },
-    [startMatchBase, localParticipant, room],
+    [startMatchBase, localParticipant, room, selectedTrackDurationMs],
   );
 
   const value = useMemo(

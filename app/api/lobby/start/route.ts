@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   }
   const duration =
     typeof body.duration === "number" && body.duration > 0
-      ? Math.min(180_000, body.duration)
+      ? Math.min(240_000, body.duration)
       : DEFAULT_MATCH_DURATION_MS;
   room.match = {
     id: room.nextMatchId,
